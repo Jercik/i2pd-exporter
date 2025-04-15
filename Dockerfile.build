@@ -1,0 +1,33 @@
+FROM debian:12
+
+# Install Rust and dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    gcc-x86-64-linux-gnu \
+    binutils-x86-64-linux-gnu \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create .cargo/config.toml to configure cross-compilation
+RUN mkdir -p /root/.cargo
+RUN echo '[target.x86_64-unknown-linux-gnu]\nlinker = "x86_64-linux-gnu-gcc"\n' > /root/.cargo/config.toml
+
+# Install Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Explicitly add the x86_64 target
+RUN rustup target add x86_64-unknown-linux-gnu
+
+# Create app directory
+WORKDIR /usr/src/app
+
+# Copy your project files
+COPY . .
+
+# Build release binary with optimizations - explicitly target x86_64
+RUN cargo build --release --target x86_64-unknown-linux-gnu --target-dir /build
+
+# The output binary will be at /build/release/x86_64-unknown-linux-gnu/i2pd-exporter

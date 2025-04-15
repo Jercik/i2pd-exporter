@@ -1,0 +1,17 @@
+# Rust build directory
+/target/
+
+# Remove Cargo.lock for libraries
+# Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Debug files
+*.pdb
