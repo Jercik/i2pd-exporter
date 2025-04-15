@@ -66,6 +66,9 @@ jobs:
     needs: build # Run after build job completes
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v') # Only run on tag pushes
+    # Grant permissions for the GITHUB_TOKEN to allow creating releases
+    permissions:
+      contents: write
 
     steps:
       - name: Download all build artifacts
