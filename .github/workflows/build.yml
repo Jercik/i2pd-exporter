@@ -1,9 +1,10 @@
 # .github/workflows/build.yml
-name: Build
+name: Build and Release
 
 on:
   push:
     branches: ["main"]
+    tags: ["v*.*.*"]
   pull_request:
     branches: ["main"]
 
@@ -41,6 +42,9 @@ jobs:
           sudo apt-get install -y --no-install-recommends crossbuild-essential-arm64 gcc-aarch64-linux-gnu
 
       - name: Build binary
+        # Set the linker explicitly for cross-compilation targets on Linux
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: cargo build --verbose --release --target ${{ matrix.target }}
 
       - name: Package binary (Linux/macOS)
@@ -56,3 +60,24 @@ jobs:
         with:
           name: i2pd-exporter-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/i2pd-exporter-${{ matrix.target }}.tar.gz
+
+  release:
+    name: Create GitHub Release
+    needs: build # Run after build job completes
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') # Only run on tag pushes
+
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/ # Download all artifacts to this directory
+
+      - name: List downloaded artifacts # Optional: for debugging
+        run: ls -R artifacts/
+
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          # This automatically creates a draft release based on the tag
+          files: artifacts/*/*.tar.gz # Upload all tar.gz files from subdirectories
