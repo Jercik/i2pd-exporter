@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["The i2pd-exporter Contributors"]
 description = "Prometheus exporter for i2pd (via I2PControl API)"
 license = "MIT"
-repository = "https://github.com/your-username/i2pd-exporter"
+repository = "https://github.com/Jercik/i2pd-exporter"
 keywords = ["i2p", "i2pd", "prometheus", "exporter", "monitoring"]
 
 [dependencies]
