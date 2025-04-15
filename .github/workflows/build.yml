@@ -1,0 +1,58 @@
+# .github/workflows/build.yml
+name: Build
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build for ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends crossbuild-essential-arm64 gcc-aarch64-linux-gnu
+
+      - name: Build binary
+        run: cargo build --verbose --release --target ${{ matrix.target }}
+
+      - name: Package binary (Linux/macOS)
+        if: runner.os == 'Linux' || runner.os == 'macOS'
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czvf i2pd-exporter-${{ matrix.target }}.tar.gz i2pd-exporter
+          cd ../../..
+
+      - name: Upload artifact (Linux/macOS)
+        if: runner.os == 'Linux' || runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: i2pd-exporter-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/i2pd-exporter-${{ matrix.target }}.tar.gz
