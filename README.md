@@ -4,26 +4,24 @@ A Prometheus exporter for i2pd, written in Rust.
 
 ## Features
 
-- Collects metrics from i2pd via its **I2PControl JSON-RPC API** (HTTPS).
-- Uses the `Authenticate` and `RouterInfo` API methods.
-- Handles API token acquisition and automatic refresh on expiry.
-- Exposes metrics in Prometheus format (default port: 9600, configured to 9446 by Ansible).
-- Low memory footprint and efficient performance.
-- **Note:** Connects via HTTPS and explicitly accepts self-signed certificate used by i2pd's I2PControl interface.
+- Collects metrics from i2pd using its I2PControl JSON-RPC API.
+- Automatically acquires and refreshes API tokens.
+- Exposes metrics in Prometheus format (default port: 9600).
+- Efficient and lightweight.
 
 ## Building
 
-The primary way to build the exporter is using the standard Rust toolchain:
+Build the exporter using the standard Rust toolchain:
 
 ```bash
 cargo build --release
 ```
 
-The resulting binary will be located at `target/release/i2pd-exporter`.
+The binary will be located at `target/release/i2pd-exporter`.
 
 ### Building Static Linux Binary (via Docker)
 
-For convenience, a script is provided to build a static Linux binary suitable for deployment on `x86_64-unknown-linux-gnu` targets using Docker:
+A script is provided to build a static Linux binary (`x86_64-unknown-linux-gnu`) using Docker:
 
 1. Ensure Docker is installed and running.
 2. Run the build script:
@@ -32,42 +30,41 @@ For convenience, a script is provided to build a static Linux binary suitable fo
 ./build-static-linux-docker.sh
 ```
 
-This script builds the binary using a Docker container and copies the compiled static binary to the `./dist/` directory within this project.
+This builds the binary in a Docker container and copies the static binary to `./dist/`.
 
 ## Configuration
 
-The exporter is configured through environment variables:
+Configure the exporter using environment variables:
 
-- `I2PCONTROL_ADDRESS`: URL of the i2pd I2PControl JSON-RPC endpoint (default: "https://127.0.0.1:7650"). The exporter appends `/jsonrpc` automatically.
-- `I2PCONTROL_PASSWORD`: Password for the I2PControl API (default: "itoopie"). Required for authentication.
+- `I2PCONTROL_ADDRESS`: URL of the i2pd I2PControl JSON-RPC endpoint (default: "https://127.0.0.1:7650"). `/jsonrpc` is appended automatically.
+- `I2PCONTROL_PASSWORD`: Password for the I2PControl API (default: "itoopie"). Required.
 - `METRICS_LISTEN_ADDR`: Address and port for the exporter to listen on (default: "0.0.0.0:9600").
-  - Note: When deployed via the associated Ansible role, this is typically set to `0.0.0.0:9446`.
-- `HTTP_TIMEOUT_SECONDS`: Timeout for HTTP requests to the I2PControl API in seconds (default: 60).
+- `HTTP_TIMEOUT_SECONDS`: Timeout for I2PControl API requests in seconds (default: 60).
 
 ## Metrics
 
-The exporter provides the following metrics based on the `RouterInfo` API call:
+Provides the following metrics (from the `RouterInfo` API call):
 
-- `i2p_router_status`: Router status string (numeric representation, e.g., 1.0 for "OK")
-- `i2p_router_version_info{version="..."}`: Router version information (gauge=1)
+- `i2p_router_status`: Router status (numeric, e.g., 1.0 for "OK")
+- `i2p_router_version_info{version="..."}`: Router version (gauge=1)
 - `i2p_router_uptime_seconds`: Router uptime in seconds
-- `i2p_router_bandwidth_inbound_bytes_per_second{interval="1s|15s"}`: Network bandwidth inbound
-- `i2p_router_bandwidth_outbound_bytes_per_second{interval="1s|15s"}`: Network bandwidth outbound
-- `i2p_router_network_status_code`: Current router network status code (numeric)
-- `i2p_router_tunnels_participating`: Number of participating tunnels
-- `i2p_router_netdb_activepeers`: Number of active peers
-- `i2p_router_netdb_fastpeers`: Number of fast peers
-- `i2p_router_netdb_highcapacitypeers`: Number of high capacity peers
-- `i2p_router_netdb_is_reseeding`: Whether the router is currently reseeding (1=yes, 0=no)
-- `i2p_router_netdb_knownpeers`: Number of known peers
-- `i2pd_exporter_version_info{version="..."}`: Version of the i2pd-exporter itself (gauge=1)
+- `i2p_router_bandwidth_inbound_bytes_per_second{interval="1s|15s"}`: Inbound bandwidth (1s/15s avg)
+- `i2p_router_bandwidth_outbound_bytes_per_second{interval="1s|15s"}`: Outbound bandwidth (1s/15s avg)
+- `i2p_router_network_status_code`: Network status code
+- `i2p_router_tunnels_participating`: Participating tunnels count
+- `i2p_router_netdb_activepeers`: Active peers count
+- `i2p_router_netdb_fastpeers`: Fast peers count
+- `i2p_router_netdb_highcapacitypeers`: High capacity peers count
+- `i2p_router_netdb_is_reseeding`: Is reseeding (1=yes, 0=no)
+- `i2p_router_netdb_knownpeers`: Known peers count
+- `i2pd_exporter_version_info{version="..."}`: Exporter version (gauge=1)
 
 ## Deployment
 
-The compiled binary can be found in the `./dist/` directory after running the `build-static-linux-docker.sh` script, or in `target/release/` after a native build.
+Find the compiled binary in `./dist/` (static build) or `target/release/` (native build).
 
-Deployment instructions depend on your specific environment. You will typically need to:
+To deploy:
 
 1. Copy the binary to your target server.
 2. Configure it to run as a service (e.g., using systemd).
-3. Provide the necessary environment variables for configuration (see Configuration section above).
+3. Set the necessary environment variables (see Configuration).
