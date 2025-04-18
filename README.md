@@ -53,9 +53,6 @@ Provides the following metrics (from the `RouterInfo` API call):
 - `i2p_router_network_status_code`: Network status code
 - `i2p_router_tunnels_participating`: Participating tunnels count
 - `i2p_router_netdb_activepeers`: Active peers count
-- `i2p_router_netdb_fastpeers`: Fast peers count
-- `i2p_router_netdb_highcapacitypeers`: High capacity peers count
-- `i2p_router_netdb_is_reseeding`: Is reseeding (1=yes, 0=no)
 - `i2p_router_netdb_knownpeers`: Known peers count
 - `i2pd_exporter_version_info{version="..."}`: Exporter version (gauge=1)
 

@@ -56,12 +56,6 @@ struct RouterInfoResult {
     tunnels_participating: Option<u64>,
     #[serde(rename = "i2p.router.netdb.activepeers")]
     netdb_activepeers: Option<u64>,
-    #[serde(rename = "i2p.router.netdb.fastpeers")]
-    netdb_fastpeers: Option<u64>,
-    #[serde(rename = "i2p.router.netdb.highcapacitypeers")]
-    netdb_highcapacitypeers: Option<u64>,
-    #[serde(rename = "i2p.router.netdb.isreseeding")]
-    netdb_isreseeding: Option<bool>,
     #[serde(rename = "i2p.router.netdb.knownpeers")]
     netdb_knownpeers: Option<u64>,
 }
@@ -180,9 +174,6 @@ impl AppState {
                 "i2p.router.net.status", // Request network status code (numeric)
                 "i2p.router.net.tunnels.participating", // Request participating tunnel count (0 or 1 likely)
                 "i2p.router.netdb.activepeers", // Request active peer count (floodfills)
-                "i2p.router.netdb.fastpeers", // Request fast peer count
-                "i2p.router.netdb.highcapacitypeers", // Request high capacity peer count
-                "i2p.router.netdb.isreseeding", // Request reseed status (bool)
                 "i2p.router.netdb.knownpeers", // Request known peer count (total RouterInfos)
             ] {
                 // Value::Null indicates we want the value for this key
@@ -303,21 +294,6 @@ impl AppState {
                 output += "# HELP i2p_router_netdb_activepeers Number of active known peers in NetDB\n";
                 output += "# TYPE i2p_router_netdb_activepeers gauge\n";
                 output += &format!("i2p_router_netdb_activepeers {}\n", count);
-            }
-            if let Some(count) = data.netdb_fastpeers {
-                output += "# HELP i2p_router_netdb_fastpeers Number of known fast peers in NetDB\n";
-                output += "# TYPE i2p_router_netdb_fastpeers gauge\n";
-                output += &format!("i2p_router_netdb_fastpeers {}\n", count);
-            }
-            if let Some(count) = data.netdb_highcapacitypeers {
-                output += "# HELP i2p_router_netdb_highcapacitypeers Number of known high capacity peers in NetDB\n";
-                output += "# TYPE i2p_router_netdb_highcapacitypeers gauge\n";
-                output += &format!("i2p_router_netdb_highcapacitypeers {}\n", count);
-            }
-            if let Some(is_res) = data.netdb_isreseeding {
-                output += "# HELP i2p_router_netdb_is_reseeding Is router currently reseeding? (1=yes, 0=no)\n";
-                output += "# TYPE i2p_router_netdb_is_reseeding gauge\n";
-                output += &format!("i2p_router_netdb_is_reseeding {}\n", if is_res { 1 } else { 0 });
             }
             if let Some(count) = data.netdb_knownpeers {
                 output += "# HELP i2p_router_netdb_knownpeers Total number of known peers (RouterInfos) in NetDB\n";
