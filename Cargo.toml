@@ -1,6 +1,6 @@
 [package]
 name = "i2pd-exporter"
-version = "1.2.2"
+version = "1.2.3"
 edition = "2021"
 authors = ["The i2pd-exporter Contributors"]
 description = "Prometheus exporter for i2pd (via I2PControl API)"
