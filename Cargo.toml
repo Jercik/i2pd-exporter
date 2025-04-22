@@ -9,7 +9,7 @@ repository = "https://github.com/Jercik/i2pd-exporter"
 keywords = ["i2p", "i2pd", "prometheus", "exporter", "monitoring"]
 
 [dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "net"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "net", "signal"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

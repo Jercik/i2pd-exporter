@@ -7,6 +7,9 @@ use serde::Deserialize;
 use serde_json::Value;
 use log::{info, warn, error};
 use warp::Filter;
+use tokio::signal;
+#[cfg(unix)]
+use tokio::signal::unix::{signal as unix_signal, SignalKind};
 
 // --- I2PControl API Response Structures ---
 
@@ -390,7 +393,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let routes = route_metrics.or(route_404);
 
     info!("Listening on http://{}", listen_addr);
-    warp::serve(routes).run(listen_addr).await;
+    // Prepare a shutdown signal future that resolves on Ctrl‑C (SIGINT) or SIGTERM.
+    let shutdown_signal = async {
+        #[cfg(unix)]
+        {
+            let mut sigterm =
+                unix_signal(SignalKind::terminate()).expect("Failed to install SIGTERM handler");
+            let mut sigint =
+                unix_signal(SignalKind::interrupt()).expect("Failed to install SIGINT handler");
+            tokio::select! {
+                _ = sigterm.recv() => {
+                    info!("Received SIGTERM – initiating graceful shutdown");
+                }
+                _ = sigint.recv() => {
+                    info!("Received SIGINT (Ctrl+C) – initiating graceful shutdown");
+                }
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            signal::ctrl_c()
+                .await
+                .expect("Failed to install Ctrl+C handler");
+            info!("Received Ctrl+C – initiating graceful shutdown");
+        }
+    };
+
+    // Start the Warp server with graceful‑shutdown support
+    let (_addr, server) = warp::serve(routes)
+        .bind_with_graceful_shutdown(listen_addr, shutdown_signal);
+
+    server.await;
 
     Ok(())
 }
