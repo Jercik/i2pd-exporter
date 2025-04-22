@@ -167,10 +167,10 @@ impl AppState {
                 "i2p.router.status", // Request router status string (e.g., "OK", "Testing")
                 "i2p.router.version", // Request router version string
                 "i2p.router.uptime", // Request uptime in milliseconds
-                "i2p.router.net.bw.inbound.1s", // Request inbound bandwidth (1s avg, KBps)
-                "i2p.router.net.bw.inbound.15s", // Request inbound bandwidth (15s avg, KBps)
-                "i2p.router.net.bw.outbound.1s", // Request outbound bandwidth (1s avg, KBps)
-                "i2p.router.net.bw.outbound.15s", // Request outbound bandwidth (15s avg, KBps)
+                "i2p.router.net.bw.inbound.1s", // Request inbound bandwidth (1s avg, Bps)
+                "i2p.router.net.bw.inbound.15s", // Request inbound bandwidth (15s avg, Bps)
+                "i2p.router.net.bw.outbound.1s", // Request outbound bandwidth (1s avg, Bps)
+                "i2p.router.net.bw.outbound.15s", // Request outbound bandwidth (15s avg, Bps)
                 "i2p.router.net.status", // Request network status code (numeric)
                 "i2p.router.net.tunnels.participating", // Request participating tunnel count (0 or 1 likely)
                 "i2p.router.netdb.activepeers", // Request active peer count (floodfills)
