@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use clap::Parser;
 use parking_lot::Mutex;
 use serde::Deserialize;
 use serde_json::Value;
@@ -10,6 +11,12 @@ use warp::Filter;
 use tokio::signal;
 #[cfg(unix)]
 use tokio::signal::unix::{signal as unix_signal, SignalKind};
+
+// --- CLI Arguments ---
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)] // Automatically uses version from Cargo.toml
+struct Cli {}
 
 // --- I2PControl API Response Structures ---
 
@@ -320,6 +327,9 @@ impl AppState {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Parse command-line arguments (handles --version automatically)
+    let cli = Cli::parse();
+
     env_logger::init();
 
     // Configuration

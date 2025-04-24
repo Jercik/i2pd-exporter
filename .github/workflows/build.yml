@@ -75,11 +75,23 @@ jobs:
       - name: List downloaded artifacts # Optional: for debugging
         run: ls -R artifacts/
 
+      - name: Generate checksums for archives
+        run: |
+          cd artifacts
+          # Use find to handle files in subdirectories like 'i2pd-exporter-x86_64-unknown-linux-gnu/'
+          # Generate sha256sums for the .tar.gz files and store in sha256sums.txt
+          find . -name '*.tar.gz' -exec sha256sum {} + > sha256sums.txt
+          echo "Generated checksums:"
+          cat sha256sums.txt
+          cd ..
+
       - name: Create Release and Upload Assets
         uses: softprops/action-gh-release@v2
         with:
           # This automatically creates a draft release based on the tag
-          files: artifacts/*/*.tar.gz # Upload all tar.gz files from subdirectories
+          files: |
+            artifacts/*/*.tar.gz
+            artifacts/sha256sums.txt
 
   publish:
     name: Publish to crates.io

@@ -1,6 +1,6 @@
 [package]
 name = "i2pd-exporter"
-version = "1.2.3"
+version = "1.3.0"
 edition = "2021"
 authors = ["The i2pd-exporter Contributors"]
 description = "Prometheus exporter for i2pd (via I2PControl API)"
@@ -17,6 +17,7 @@ env_logger = "0.11"
 log = "0.4"
 parking_lot = "0.12"
 warp = "0.3"
+clap = { version = "4.5", features = ["derive"] } # For CLI argument parsing (--version flag)
 
 [profile.release]
 opt-level = 'z'      # Optimize for size

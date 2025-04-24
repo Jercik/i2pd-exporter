@@ -17,7 +17,8 @@ A **tiny, pure‑Rust** Prometheus exporter that surfaces metrics from the i2pd 
 
 ```bash
 cargo build --release               # native build
-./target/release/i2pd-exporter
+./target/release/i2pd-exporter --version # Check version
+./target/release/i2pd-exporter      # Run the exporter
 ```
 
 ### Static Linux (Docker)
@@ -25,6 +26,12 @@ cargo build --release               # native build
 ```bash
 ./build-static-linux-docker.sh      # outputs to ./dist/
 ```
+
+---
+
+## Releases
+
+GitHub releases include pre-compiled static Linux binaries (`.tar.gz`) for `x86_64` and `aarch64`. Each release also provides a `sha256sums.txt` file for verifying archive integrity.
 
 ---
 
