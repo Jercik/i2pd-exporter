@@ -1,7 +1,9 @@
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use tokio::sync::Mutex;
 
 use clap::Parser;
 use log::{error, info, warn};
@@ -18,6 +20,39 @@ fn escape_label(s: &str) -> String {
     s.replace('\\', r"\\")
         .replace('\n', r"\n")
         .replace('"', r#"\""#)
+}
+
+fn truncate_chars(s: &str, max: usize) -> String {
+    let t: String = s.chars().take(max).collect();
+    if s.chars().count() <= max {
+        s.to_owned()
+    } else {
+        t
+    }
+}
+
+// Write HELP and TYPE lines together for a metric family
+fn help(buf: &mut String, name: &str, help: &str, mtype: &str) {
+    use std::fmt::Write as _;
+    writeln!(buf, "# HELP {} {}", name, help).ok();
+    writeln!(buf, "# TYPE {} {}", name, mtype).ok();
+}
+
+// Write a single metric sample, optionally with labels
+fn sample(buf: &mut String, name: &str, labels: &[(&str, &str)], value: impl std::fmt::Display) {
+    use std::fmt::Write as _;
+    if labels.is_empty() {
+        writeln!(buf, "{} {}", name, value).ok();
+        return;
+    }
+    write!(buf, "{}{{", name).ok();
+    for (i, (k, v)) in labels.iter().enumerate() {
+        if i > 0 {
+            write!(buf, ",").ok();
+        }
+        write!(buf, "{}=\"{}\"", k, v).ok();
+    }
+    writeln!(buf, "}} {}", value).ok();
 }
 
 // Compile-time exporter version string
@@ -63,10 +98,10 @@ async fn rpc_call<T: DeserializeOwned>(
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        let snippet = if body.len() > 2048 {
-            &body[..2048]
+        let snippet = if body.chars().count() > 2048 {
+            truncate_chars(&body, 2048)
         } else {
-            &body
+            body.clone()
         };
         return Err(format!("HTTP {} calling {}: body: {}", status, method, snippet).into());
     }
@@ -75,10 +110,10 @@ async fn rpc_call<T: DeserializeOwned>(
     if std::env::var("DEBUG_I2PCONTROL_BODY").ok().as_deref() == Some("1") && method == "RouterInfo"
     {
         // Truncate to avoid excessive logs
-        let snippet = if text.len() > 4096 {
-            &text[..4096]
+        let snippet = if text.chars().count() > 4096 {
+            truncate_chars(&text, 4096)
         } else {
-            &text
+            text.clone()
         };
         log::debug!("{} response body: {}", method, snippet);
     }
@@ -89,10 +124,10 @@ async fn rpc_call<T: DeserializeOwned>(
             Err(format!("{} error {}: {}", method, error.code, error.message).into())
         }
         Err(e) => {
-            let snippet = if text.len() > 2048 {
-                &text[..2048]
+            let snippet = if text.chars().count() > 2048 {
+                truncate_chars(&text, 2048)
             } else {
-                &text
+                text.clone()
             };
             Err(format!(
                 "error decoding response body for {}: {}; body: {}",
@@ -177,7 +212,7 @@ impl AppState {
 
         if let Some(token) = result.token {
             {
-                let mut guard = self.token.lock().unwrap();
+                let mut guard = self.token.lock().await;
                 *guard = Some(token.clone());
             }
             info!("Obtained authentication token from I2PControl");
@@ -196,7 +231,7 @@ impl AppState {
             // Loop to handle potential re-authentication
             // Get the current token from the mutex
             let current_token = {
-                let guard = self.token.lock().unwrap(); // Lock the mutex
+                let guard = self.token.lock().await; // Lock the mutex
                 guard.clone() // Clone the Option<String>
             }; // Mutex guard is dropped here
 
@@ -214,13 +249,13 @@ impl AppState {
             // We request specific keys related to router status, bandwidth, network, etc.
             let mut params = serde_json::Map::new();
             for key in &[
-                "i2p.router.status",  // Request router status string (e.g., "OK", "Testing")
-                "i2p.router.version", // Request router version string
-                "i2p.router.uptime",  // Request uptime in milliseconds
-                "i2p.router.net.bw.inbound.1s", // Request inbound bandwidth (1s avg, Bps)
-                "i2p.router.net.bw.inbound.15s", // Request inbound bandwidth (15s avg, Bps)
-                "i2p.router.net.bw.outbound.1s", // Request outbound bandwidth (1s avg, Bps)
-                "i2p.router.net.bw.outbound.15s", // Request outbound bandwidth (15s avg, Bps)
+                "i2p.router.status",                    // Router status as string "1" or "0"
+                "i2p.router.version",                   // Request router version string
+                "i2p.router.uptime",                    // Request uptime in milliseconds
+                "i2p.router.net.bw.inbound.1s",         // Request inbound bandwidth (1s avg, Bps)
+                "i2p.router.net.bw.inbound.15s",        // Request inbound bandwidth (15s avg, Bps)
+                "i2p.router.net.bw.outbound.1s",        // Request outbound bandwidth (1s avg, Bps)
+                "i2p.router.net.bw.outbound.15s",       // Request outbound bandwidth (15s avg, Bps)
                 "i2p.router.net.status", // Request IPv4 network status code (0 OK, 1 Firewalled, 2 Unknown, 3 Proxy, 4 Mesh)
                 "i2p.router.net.tunnels.participating", // Request participating tunnel count (0 or 1 likely)
                 "i2p.router.net.tunnels.successrate", // Request tunnel success rate (percent integer)
@@ -252,7 +287,7 @@ impl AppState {
                     if is_token_err && !did_retry {
                         warn!("Token error, re-authenticating...: {}", msg);
                         {
-                            let mut guard = self.token.lock().unwrap();
+                            let mut guard = self.token.lock().await;
                             *guard = None;
                         }
                         let _ = self.authenticate().await?;
@@ -265,43 +300,51 @@ impl AppState {
 
             // Build the Prometheus output
             let mut output = String::with_capacity(1024);
-            use std::fmt::Write as _;
 
             // Router status (I2PControl returns "1" or "0" as a string)
             if let Some(status) = &data.router_status {
-                writeln!(output, "# HELP i2p_router_status Router status numeric").ok();
-                writeln!(output, "# TYPE i2p_router_status gauge").ok();
+                help(
+                    &mut output,
+                    "i2p_router_status",
+                    "Router status (1 or 0)",
+                    "gauge",
+                );
                 let status_value = status.trim().parse::<u64>().unwrap_or(0);
-                writeln!(output, "i2p_router_status {}", status_value).ok();
+                sample(&mut output, "i2p_router_status", &[], status_value);
             }
 
             // Router build info (with version label)
             if let Some(version) = &data.router_version {
-                writeln!(
-                    output,
-                    "# HELP i2p_router_build_info Router build information"
-                )
-                .ok();
-                writeln!(output, "# TYPE i2p_router_build_info gauge").ok();
-                writeln!(
-                    output,
-                    r#"i2p_router_build_info{{version="{}"}} 1"#,
-                    escape_label(version)
-                )
-                .ok();
+                help(
+                    &mut output,
+                    "i2p_router_build_info",
+                    "Router build information",
+                    "gauge",
+                );
+                let version = escape_label(version);
+                sample(
+                    &mut output,
+                    "i2p_router_build_info",
+                    &[("version", &version)],
+                    1,
+                );
             }
 
             // Metric: Router Uptime (convert ms to seconds)
             if let Some(ms) = data.router_uptime {
                 let seconds = (ms as f64) / 1000.0; // Convert ms to s
-                writeln!(
-                    output,
-                    "# HELP i2p_router_uptime_seconds Router uptime in seconds"
-                )
-                .ok();
-                writeln!(output, "# TYPE i2p_router_uptime_seconds gauge").ok();
-                writeln!(output, "i2p_router_uptime_seconds {:.3}", seconds).ok();
-                // Format to 3 decimal places
+                help(
+                    &mut output,
+                    "i2p_router_uptime_seconds",
+                    "Router uptime in seconds",
+                    "gauge",
+                );
+                sample(
+                    &mut output,
+                    "i2p_router_uptime_seconds",
+                    &[],
+                    format!("{:.3}", seconds),
+                );
             }
 
             // Metrics: Bandwidth (Inbound/Outbound, 1s/15s windows, Bytes/sec)
@@ -310,64 +353,63 @@ impl AppState {
                 || data.bw_outbound_1s.is_some()
                 || data.bw_outbound_15s.is_some();
             if any_bw {
-                writeln!(
-                    output,
-                    "# HELP i2p_router_net_bw_bytes_per_second Router bandwidth in bytes/sec"
-                )
-                .ok();
-                writeln!(output, "# TYPE i2p_router_net_bw_bytes_per_second gauge").ok();
+                help(
+                    &mut output,
+                    "i2p_router_net_bw_bytes_per_second",
+                    "Router bandwidth in bytes/sec",
+                    "gauge",
+                );
             }
             if data.bw_inbound_1s.is_some() || data.bw_inbound_15s.is_some() {
                 if let Some(bw) = data.bw_inbound_1s {
                     // 1-second average
-                    writeln!(
-                        output,
-                        r#"i2p_router_net_bw_bytes_per_second{{direction="inbound",window="1s"}} {}"#,
-                        bw
-                    )
-                    .ok();
+                    sample(
+                        &mut output,
+                        "i2p_router_net_bw_bytes_per_second",
+                        &[("direction", "in"), ("window", "1s")],
+                        bw,
+                    );
                 }
                 if let Some(bw) = data.bw_inbound_15s {
                     // 15-second average
-                    writeln!(
-                        output,
-                        r#"i2p_router_net_bw_bytes_per_second{{direction="inbound",window="15s"}} {}"#,
-                        bw
-                    )
-                    .ok();
+                    sample(
+                        &mut output,
+                        "i2p_router_net_bw_bytes_per_second",
+                        &[("direction", "in"), ("window", "15s")],
+                        bw,
+                    );
                 }
             }
             if data.bw_outbound_1s.is_some() || data.bw_outbound_15s.is_some() {
                 // Outbound points (no duplicate HELP/TYPE)
                 if let Some(bw) = data.bw_outbound_1s {
                     // 1-second average
-                    writeln!(
-                        output,
-                        r#"i2p_router_net_bw_bytes_per_second{{direction="outbound",window="1s"}} {}"#,
-                        bw
-                    )
-                    .ok();
+                    sample(
+                        &mut output,
+                        "i2p_router_net_bw_bytes_per_second",
+                        &[("direction", "out"), ("window", "1s")],
+                        bw,
+                    );
                 }
                 if let Some(bw) = data.bw_outbound_15s {
                     // 15-second average
-                    writeln!(
-                        output,
-                        r#"i2p_router_net_bw_bytes_per_second{{direction="outbound",window="15s"}} {}"#,
-                        bw
-                    )
-                    .ok();
+                    sample(
+                        &mut output,
+                        "i2p_router_net_bw_bytes_per_second",
+                        &[("direction", "out"), ("window", "15s")],
+                        bw,
+                    );
                 }
             }
 
             // Metric: Net Status (IPv4)
             if let Some(status) = data.net_status {
-                writeln!(
-                    output,
-                    "# HELP i2p_router_net_status IPv4 network status as states (ok, firewalled, unknown, proxy, mesh)"
-                )
-                .ok();
-                writeln!(output, "# TYPE i2p_router_net_status gauge").ok();
-
+                help(
+                    &mut output,
+                    "i2p_router_net_status",
+                    "IPv4 network status as states (ok, firewalled, unknown, proxy, mesh)",
+                    "gauge",
+                );
                 let active = match status {
                     0 => "ok",
                     1 => "firewalled",
@@ -378,87 +420,104 @@ impl AppState {
                 };
                 for state in ["ok", "firewalled", "unknown", "proxy", "mesh"].iter() {
                     let val = if *state == active { 1 } else { 0 };
-                    writeln!(
-                        output,
-                        r#"i2p_router_net_status{{state="{}"}} {}"#,
-                        state, val
-                    )
-                    .ok();
+                    sample(
+                        &mut output,
+                        "i2p_router_net_status",
+                        &[("state", state)],
+                        val,
+                    );
                 }
             }
 
             // Metric: Participating Tunnels
             if let Some(count) = data.tunnels_participating {
-                writeln!(output, "# HELP i2p_router_tunnels_participating Number of active participating transit tunnels").ok();
-                writeln!(output, "# TYPE i2p_router_tunnels_participating gauge").ok();
-                writeln!(output, "i2p_router_tunnels_participating {}", count).ok();
+                help(
+                    &mut output,
+                    "i2p_router_tunnels_participating",
+                    "Number of active participating transit tunnels",
+                    "gauge",
+                );
+                sample(&mut output, "i2p_router_tunnels_participating", &[], count);
             }
 
             // Metric: Tunnels success rate as ratio (0..1)
             if let Some(percent) = data.tunnels_successrate {
                 let ratio = (percent / 100.0).clamp(0.0, 1.0);
-                writeln!(output, "# HELP i2p_router_tunnels_success_ratio Tunnel build success rate as a ratio (0..1)").ok();
-                writeln!(output, "# TYPE i2p_router_tunnels_success_ratio gauge").ok();
-                writeln!(output, "i2p_router_tunnels_success_ratio {:.6}", ratio).ok();
+                help(
+                    &mut output,
+                    "i2p_router_tunnels_success_ratio",
+                    "Tunnel build success rate as a ratio (0..1)",
+                    "gauge",
+                );
+                sample(
+                    &mut output,
+                    "i2p_router_tunnels_success_ratio",
+                    &[],
+                    format!("{:.6}", ratio),
+                );
             }
 
             // Metrics: NetDB Peer Statistics
             if let Some(count) = data.netdb_activepeers {
-                writeln!(
-                    output,
-                    "# HELP i2p_router_netdb_activepeers Number of active known peers in NetDB"
-                )
-                .ok();
-                writeln!(output, "# TYPE i2p_router_netdb_activepeers gauge").ok();
-                writeln!(output, "i2p_router_netdb_activepeers {}", count).ok();
+                help(
+                    &mut output,
+                    "i2p_router_netdb_activepeers",
+                    "Number of active known peers in NetDB",
+                    "gauge",
+                );
+                sample(&mut output, "i2p_router_netdb_activepeers", &[], count);
             }
             if let Some(count) = data.netdb_knownpeers {
-                writeln!(output, "# HELP i2p_router_netdb_knownpeers Total number of known peers (RouterInfos) in NetDB").ok();
-                writeln!(output, "# TYPE i2p_router_netdb_knownpeers gauge").ok();
-                writeln!(output, "i2p_router_netdb_knownpeers {}", count).ok();
+                help(
+                    &mut output,
+                    "i2p_router_netdb_knownpeers",
+                    "Total number of known peers (RouterInfos) in NetDB",
+                    "gauge",
+                );
+                sample(&mut output, "i2p_router_netdb_knownpeers", &[], count);
             }
 
             // Metrics: Total Network Bytes (received/sent)
             if data.net_total_received_bytes.is_some() || data.net_total_sent_bytes.is_some() {
-                writeln!(
-                    output,
-                    "# HELP i2p_router_net_bytes_total Total network bytes since router start"
-                )
-                .ok();
-                writeln!(output, "# TYPE i2p_router_net_bytes_total counter").ok();
-
+                help(
+                    &mut output,
+                    "i2p_router_net_bytes_total",
+                    "Total network bytes since router start",
+                    "counter",
+                );
                 if let Some(v) = data.net_total_received_bytes {
-                    writeln!(
-                        output,
-                        r#"i2p_router_net_bytes_total{{direction="received"}} {}"#,
-                        v
-                    )
-                    .ok();
+                    sample(
+                        &mut output,
+                        "i2p_router_net_bytes_total",
+                        &[("direction", "in")],
+                        v,
+                    );
                 }
                 if let Some(v) = data.net_total_sent_bytes {
-                    writeln!(
-                        output,
-                        r#"i2p_router_net_bytes_total{{direction="sent"}} {}"#,
-                        v
-                    )
-                    .ok();
+                    sample(
+                        &mut output,
+                        "i2p_router_net_bytes_total",
+                        &[("direction", "out")],
+                        v,
+                    );
                 }
             }
 
             // Metric: Exporter build info (info gauge)
-            writeln!(
-                output,
-                "# HELP i2pd_exporter_build_info Exporter build information"
-            )
-            .ok();
-            writeln!(output, "# TYPE i2pd_exporter_build_info gauge").ok();
+            help(
+                &mut output,
+                "i2pd_exporter_build_info",
+                "Exporter build information",
+                "gauge",
+            );
             // Use CARGO_PKG_VERSION env var set at compile time
-            writeln!(
-                output,
-                r#"i2pd_exporter_build_info{{version="{}"}} 1"#,
-                escape_label(EXPORTER_VERSION)
-            )
-            .ok();
+            let exporter_version = escape_label(EXPORTER_VERSION);
+            sample(
+                &mut output,
+                "i2pd_exporter_build_info",
+                &[("version", &exporter_version)],
+                1,
+            );
 
             return Ok(output);
         }
@@ -491,10 +550,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     );
 
     // Build an HTTP client for the I2PControl API
-    // We accept invalid certs because i2pd uses a self-signed certificate for I2PControl over HTTPS.
+    // Allow invalid certs if env set or host is loopback.
+    let tls_insecure_env = std::env::var("I2PCONTROL_TLS_INSECURE").ok().as_deref() == Some("1");
+    let host_is_loopback = reqwest::Url::parse(&i2p_addr)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_string()))
+        .map(|host| {
+            host.eq_ignore_ascii_case("localhost")
+                || host
+                    .parse::<std::net::IpAddr>()
+                    .map(|ip| ip.is_loopback())
+                    .unwrap_or(false)
+        })
+        .unwrap_or(false);
+    let allow_insecure = tls_insecure_env || host_is_loopback;
+
+    if tls_insecure_env {
+        warn!("I2PCONTROL_TLS_INSECURE=1 set; accepting invalid TLS certificates");
+    } else if host_is_loopback {
+        info!("Loopback target detected; allowing self-signed certificate");
+    }
+
     let api_client = reqwest::Client::builder()
-        .danger_accept_invalid_certs(true) // Allow self-signed certs
+        .danger_accept_invalid_certs(allow_insecure)
         .timeout(Duration::from_secs(http_timeout))
+        .user_agent(format!("i2pcontrol-exporter/{}", EXPORTER_VERSION))
         .build()?;
 
     let state = Arc::new(AppState::new(
@@ -524,30 +604,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         };
 
         // Always append exporter self-metrics: scrape duration and totals
-        use std::fmt::Write as _;
         let scrape_seconds = t0.elapsed().as_secs_f64();
-        writeln!(
-            body,
-            "# HELP i2pd_exporter_scrape_duration_seconds Duration of last scrape"
-        )
-        .ok();
-        writeln!(body, "# TYPE i2pd_exporter_scrape_duration_seconds gauge").ok();
-        writeln!(
-            body,
-            "i2pd_exporter_scrape_duration_seconds {}",
-            scrape_seconds
-        )
-        .ok();
+        help(
+            &mut body,
+            "i2pd_exporter_scrape_duration_seconds",
+            "Duration of last scrape",
+            "gauge",
+        );
+        sample(
+            &mut body,
+            "i2pd_exporter_scrape_duration_seconds",
+            &[],
+            scrape_seconds,
+        );
 
         // Increment and expose a total scrapes counter
         let total = st.scrapes_total.fetch_add(1, Ordering::Relaxed) + 1;
-        writeln!(
-            body,
-            "# HELP i2pd_exporter_scrapes_total Total scrapes since exporter start"
-        )
-        .ok();
-        writeln!(body, "# TYPE i2pd_exporter_scrapes_total counter").ok();
-        writeln!(body, "i2pd_exporter_scrapes_total {}", total).ok();
+        help(
+            &mut body,
+            "i2pd_exporter_scrapes_total",
+            "Total scrapes since exporter start",
+            "counter",
+        );
+        sample(&mut body, "i2pd_exporter_scrapes_total", &[], total);
 
         let reply = warp::reply::with_status(body, status_code);
         let reply = warp::reply::with_header(
@@ -595,7 +674,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
         #[cfg(not(unix))]
         {
-            signal::ctrl_c()
+            tokio::signal::ctrl_c()
                 .await
                 .expect("Failed to install Ctrl+C handler");
             info!("Received Ctrl+C – initiating graceful shutdown");

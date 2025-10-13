@@ -626,7 +626,7 @@ dependencies = [
 
 [[package]]
 name = "i2pd-exporter"
-version = "2.0.0-beta.1"
+version = "2.0.0-beta.2"
 dependencies = [
  "clap",
  "env_logger",
