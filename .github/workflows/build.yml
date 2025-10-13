@@ -90,6 +90,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           # Creates a published release from the tag (set draft/prerelease via inputs)
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             artifacts/*/*.tar.gz
             artifacts/sha256sums.txt
