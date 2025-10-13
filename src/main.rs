@@ -1,11 +1,10 @@
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use clap::Parser;
 use log::{error, info, warn};
-use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::Value;
@@ -178,7 +177,7 @@ impl AppState {
 
         if let Some(token) = result.token {
             {
-                let mut guard = self.token.lock();
+                let mut guard = self.token.lock().unwrap();
                 *guard = Some(token.clone());
             }
             info!("Obtained authentication token from I2PControl");
@@ -197,7 +196,7 @@ impl AppState {
             // Loop to handle potential re-authentication
             // Get the current token from the mutex
             let current_token = {
-                let guard = self.token.lock(); // Lock the mutex
+                let guard = self.token.lock().unwrap(); // Lock the mutex
                 guard.clone() // Clone the Option<String>
             }; // Mutex guard is dropped here
 
@@ -253,7 +252,7 @@ impl AppState {
                     if is_token_err && !did_retry {
                         warn!("Token error, re-authenticating...: {}", msg);
                         {
-                            let mut guard = self.token.lock();
+                            let mut guard = self.token.lock().unwrap();
                             *guard = None;
                         }
                         let _ = self.authenticate().await?;
