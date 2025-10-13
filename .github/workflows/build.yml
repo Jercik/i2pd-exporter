@@ -30,6 +30,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+          components: clippy, rustfmt
 
       - name: Install cross-compilation tools (Linux)
         if: runner.os == 'Linux'
@@ -88,7 +89,7 @@ jobs:
       - name: Create Release and Upload Assets
         uses: softprops/action-gh-release@v2
         with:
-          # This automatically creates a draft release based on the tag
+          # Creates a published release from the tag (set draft/prerelease via inputs)
           files: |
             artifacts/*/*.tar.gz
             artifacts/sha256sums.txt
