@@ -35,6 +35,15 @@ GitHub releases include pre-compiled static Linux binaries (`.tar.gz`) for `x86_
 
 ---
 
+## Development
+
+- Format: `cargo fmt --all`
+- Lint: `cargo clippy --all-targets --all-features -- -D warnings`
+
+CI runs both (rustfmt check + clippy) on pushes and PRs.
+
+---
+
 ## Configuration
 
 | Variable               | Default                  | Purpose                                    |
@@ -49,15 +58,24 @@ GitHub releases include pre-compiled static Linux binaries (`.tar.gz`) for `x86_
 ## Metrics cheat‑sheet
 
 - `i2p_router_status`
-- `i2p_router_version_info{version}`
+- `i2p_router_build_info{version}`
 - `i2p_router_uptime_seconds`
-- `i2p_router_bandwidth_inbound_bytes_per_second{interval}`
-- `i2p_router_bandwidth_outbound_bytes_per_second{interval}`
-- `i2p_router_network_status_code`
+- `i2p_router_net_bw_bytes_per_second{direction,interval}`
+- `i2p_router_net_status`
 - `i2p_router_tunnels_participating`
+- `i2p_router_tunnels_success_ratio`
 - `i2p_router_netdb_activepeers`
 - `i2p_router_netdb_knownpeers`
-- `i2pd_exporter_version_info{version}`
+- `i2p_router_net_bytes_total{direction}`
+- `i2pd_exporter_build_info{version}`
+ - `i2pd_exporter_scrape_duration_seconds`
+ - `up` (standard Prometheus target health; use this instead of exporter-specific success)
+
+### Notes
+- `i2p_router_net_status` (IPv4): integer status where `0=OK`, `1=Firewalled`, `2=Unknown`, `3=Proxy`, `4=Mesh`.
+- `i2p_router_tunnels_success_ratio`: tunnel build success rate as a ratio in `[0,1]`.
+- `i2pd_exporter_scrape_duration_seconds`: time to collect/format the last scrape.
+- `i2pd_exporter_last_scrape_success`: `1` on success, `0` on error.
 
 ---
 
