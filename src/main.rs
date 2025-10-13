@@ -240,7 +240,7 @@ impl AppState {
                 &self.api_client,
                 &self.api_url,
                 "RouterInfo",
-                Value::Object(params.clone()),
+                Value::Object(params),
             )
             .await
             {
