@@ -8,7 +8,6 @@ use serde::Deserialize;
 use serde_json::Value;
 use log::{info, warn, error};
 use warp::Filter;
-use tokio::signal;
 #[cfg(unix)]
 use tokio::signal::unix::{signal as unix_signal, SignalKind};
 
