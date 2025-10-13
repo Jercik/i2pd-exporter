@@ -550,7 +550,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         writeln!(body, "i2pd_exporter_scrapes_total {}", total).ok();
 
         let reply = warp::reply::with_status(body, status_code);
-        let reply = warp::reply::with_header(reply, "Content-Type", "text/plain; version=0.0.4");
+        let reply = warp::reply::with_header(
+            reply,
+            "Content-Type",
+            "text/plain; version=0.0.4; charset=utf-8",
+        );
         let reply = warp::reply::with_header(reply, "Cache-Control", "no-store");
         Ok(reply)
     }
