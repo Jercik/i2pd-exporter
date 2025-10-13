@@ -322,7 +322,7 @@ impl AppState {
                     // 1-second average
                     writeln!(
                         output,
-                        r#"i2p_router_net_bw_bytes_per_second{{direction=\"inbound\",window=\"1s\"}} {}"#,
+                        r#"i2p_router_net_bw_bytes_per_second{{direction="inbound",window="1s"}} {}"#,
                         bw
                     )
                     .ok();
@@ -331,7 +331,7 @@ impl AppState {
                     // 15-second average
                     writeln!(
                         output,
-                        r#"i2p_router_net_bw_bytes_per_second{{direction=\"inbound\",window=\"15s\"}} {}"#,
+                        r#"i2p_router_net_bw_bytes_per_second{{direction="inbound",window="15s"}} {}"#,
                         bw
                     )
                     .ok();
@@ -343,7 +343,7 @@ impl AppState {
                     // 1-second average
                     writeln!(
                         output,
-                        r#"i2p_router_net_bw_bytes_per_second{{direction=\"outbound\",window=\"1s\"}} {}"#,
+                        r#"i2p_router_net_bw_bytes_per_second{{direction="outbound",window="1s"}} {}"#,
                         bw
                     )
                     .ok();
@@ -352,7 +352,7 @@ impl AppState {
                     // 15-second average
                     writeln!(
                         output,
-                        r#"i2p_router_net_bw_bytes_per_second{{direction=\"outbound\",window=\"15s\"}} {}"#,
+                        r#"i2p_router_net_bw_bytes_per_second{{direction="outbound",window="15s"}} {}"#,
                         bw
                     )
                     .ok();
@@ -380,7 +380,7 @@ impl AppState {
                     let val = if *state == active { 1 } else { 0 };
                     writeln!(
                         output,
-                        r#"i2p_router_net_status{{state=\"{}\"}} {}"#,
+                        r#"i2p_router_net_status{{state="{}"}} {}"#,
                         state, val
                     )
                     .ok();
