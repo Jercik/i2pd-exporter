@@ -1,5 +1,4 @@
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -12,6 +11,7 @@ use serde::Deserialize;
 use serde_json::Value;
 #[cfg(unix)]
 use tokio::signal::unix::{signal as unix_signal, SignalKind};
+use warp::http::HeaderMap;
 use warp::Filter;
 
 // --- Helpers ---
@@ -50,7 +50,8 @@ fn sample(buf: &mut String, name: &str, labels: &[(&str, &str)], value: impl std
         if i > 0 {
             write!(buf, ",").ok();
         }
-        write!(buf, "{}=\"{}\"", k, v).ok();
+        let ev = escape_label(v);
+        write!(buf, "{}=\"{}\"", k, ev).ok();
     }
     writeln!(buf, "}} {}", value).ok();
 }
@@ -87,6 +88,7 @@ async fn rpc_call<T: DeserializeOwned>(
     url: &str,
     method: &str,
     params: serde_json::Value,
+    timeout: Duration,
 ) -> Result<T, Box<dyn std::error::Error + Send + Sync>> {
     let req = serde_json::json!({
         "id": 1,
@@ -94,7 +96,7 @@ async fn rpc_call<T: DeserializeOwned>(
         "method": method,
         "params": params,
     });
-    let resp = client.post(url).json(&req).send().await?;
+    let resp = client.post(url).json(&req).timeout(timeout).send().await?;
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
@@ -188,27 +190,41 @@ struct AppState {
     api_url: String,              // Full URL for the I2PControl JSON-RPC endpoint
     password: String,             // Password for the I2PControl API
     token: Mutex<Option<String>>, // Current authentication token (None if not authenticated)
-    scrapes_total: AtomicU64,     // Total number of scrapes since start
+    base_http_timeout: Duration,  // Base timeout from env, used as an upper bound
 }
 
 impl AppState {
     // Creates a new AppState instance.
-    fn new(api_client: reqwest::Client, api_url: String, password: String) -> Self {
+    fn new(
+        api_client: reqwest::Client,
+        api_url: String,
+        password: String,
+        base_http_timeout: Duration,
+    ) -> Self {
         AppState {
             api_client,
             api_url,
             password,
             token: Mutex::new(None),
-            scrapes_total: AtomicU64::new(0),
+            base_http_timeout,
         }
     }
 
     // Authenticate with the I2PControl JSON-RPC API using the configured password.
     // Stores the obtained token in the AppState's Mutex and returns it.
-    async fn authenticate(&self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    async fn authenticate(
+        &self,
+        timeout: Duration,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let params = serde_json::json!({ "API": 1, "Password": self.password });
-        let result: AuthResult =
-            rpc_call(&self.api_client, &self.api_url, "Authenticate", params).await?;
+        let result: AuthResult = rpc_call(
+            &self.api_client,
+            &self.api_url,
+            "Authenticate",
+            params,
+            timeout,
+        )
+        .await?;
 
         if let Some(token) = result.token {
             {
@@ -222,9 +238,12 @@ impl AppState {
         Err("Authentication failed: no token received".into())
     }
 
-    // Fetch metrics using the 'RouterInfo' API method and format them for Prometheus.
+    // Fetch router information from the I2PControl API.
     // Handles token acquisition and re-authentication if the token expires.
-    async fn fetch_metrics(&self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    async fn fetch_router_info(
+        &self,
+        timeout: Duration,
+    ) -> Result<RouterInfoResult, Box<dyn std::error::Error + Send + Sync>> {
         let mut did_retry = false; // Flag to prevent infinite retry loops
 
         loop {
@@ -241,7 +260,7 @@ impl AppState {
                 Some(tok) => tok,
                 None => {
                     info!("No token found, authenticating...");
-                    self.authenticate().await?
+                    self.authenticate(timeout).await?
                 }
             };
 
@@ -276,6 +295,7 @@ impl AppState {
                 &self.api_url,
                 "RouterInfo",
                 Value::Object(params),
+                timeout,
             )
             .await
             {
@@ -290,7 +310,7 @@ impl AppState {
                             let mut guard = self.token.lock().await;
                             *guard = None;
                         }
-                        let _ = self.authenticate().await?;
+                        let _ = self.authenticate(timeout).await?;
                         did_retry = true;
                         continue;
                     }
@@ -298,230 +318,252 @@ impl AppState {
                 }
             };
 
-            // Build the Prometheus output
-            let mut output = String::with_capacity(1024);
-
-            // Router status (I2PControl returns "1" or "0" as a string)
-            if let Some(status) = &data.router_status {
-                help(
-                    &mut output,
-                    "i2p_router_status",
-                    "Router status (1 or 0)",
-                    "gauge",
-                );
-                let status_value = status.trim().parse::<u64>().unwrap_or(0);
-                sample(&mut output, "i2p_router_status", &[], status_value);
-            }
-
-            // Router build info (with version label)
-            if let Some(version) = &data.router_version {
-                help(
-                    &mut output,
-                    "i2p_router_build_info",
-                    "Router build information",
-                    "gauge",
-                );
-                let version = escape_label(version);
-                sample(
-                    &mut output,
-                    "i2p_router_build_info",
-                    &[("version", &version)],
-                    1,
-                );
-            }
-
-            // Metric: Router Uptime (convert ms to seconds)
-            if let Some(ms) = data.router_uptime {
-                let seconds = (ms as f64) / 1000.0; // Convert ms to s
-                help(
-                    &mut output,
-                    "i2p_router_uptime_seconds",
-                    "Router uptime in seconds",
-                    "gauge",
-                );
-                sample(
-                    &mut output,
-                    "i2p_router_uptime_seconds",
-                    &[],
-                    format!("{:.3}", seconds),
-                );
-            }
-
-            // Metrics: Bandwidth (Inbound/Outbound, 1s/15s windows, Bytes/sec)
-            let any_bw = data.bw_inbound_1s.is_some()
-                || data.bw_inbound_15s.is_some()
-                || data.bw_outbound_1s.is_some()
-                || data.bw_outbound_15s.is_some();
-            if any_bw {
-                help(
-                    &mut output,
-                    "i2p_router_net_bw_bytes_per_second",
-                    "Router bandwidth in bytes/sec",
-                    "gauge",
-                );
-            }
-            if data.bw_inbound_1s.is_some() || data.bw_inbound_15s.is_some() {
-                if let Some(bw) = data.bw_inbound_1s {
-                    // 1-second average
-                    sample(
-                        &mut output,
-                        "i2p_router_net_bw_bytes_per_second",
-                        &[("direction", "in"), ("window", "1s")],
-                        bw,
-                    );
-                }
-                if let Some(bw) = data.bw_inbound_15s {
-                    // 15-second average
-                    sample(
-                        &mut output,
-                        "i2p_router_net_bw_bytes_per_second",
-                        &[("direction", "in"), ("window", "15s")],
-                        bw,
-                    );
-                }
-            }
-            if data.bw_outbound_1s.is_some() || data.bw_outbound_15s.is_some() {
-                // Outbound points (no duplicate HELP/TYPE)
-                if let Some(bw) = data.bw_outbound_1s {
-                    // 1-second average
-                    sample(
-                        &mut output,
-                        "i2p_router_net_bw_bytes_per_second",
-                        &[("direction", "out"), ("window", "1s")],
-                        bw,
-                    );
-                }
-                if let Some(bw) = data.bw_outbound_15s {
-                    // 15-second average
-                    sample(
-                        &mut output,
-                        "i2p_router_net_bw_bytes_per_second",
-                        &[("direction", "out"), ("window", "15s")],
-                        bw,
-                    );
-                }
-            }
-
-            // Metric: Net Status (IPv4)
-            if let Some(status) = data.net_status {
-                help(
-                    &mut output,
-                    "i2p_router_net_status",
-                    "IPv4 network status as states (ok, firewalled, unknown, proxy, mesh)",
-                    "gauge",
-                );
-                let active = match status {
-                    0 => "ok",
-                    1 => "firewalled",
-                    2 => "unknown",
-                    3 => "proxy",
-                    4 => "mesh",
-                    _ => "unknown",
-                };
-                for state in ["ok", "firewalled", "unknown", "proxy", "mesh"].iter() {
-                    let val = if *state == active { 1 } else { 0 };
-                    sample(
-                        &mut output,
-                        "i2p_router_net_status",
-                        &[("state", state)],
-                        val,
-                    );
-                }
-            }
-
-            // Metric: Participating Tunnels
-            if let Some(count) = data.tunnels_participating {
-                help(
-                    &mut output,
-                    "i2p_router_tunnels_participating",
-                    "Number of active participating transit tunnels",
-                    "gauge",
-                );
-                sample(&mut output, "i2p_router_tunnels_participating", &[], count);
-            }
-
-            // Metric: Tunnels success rate as ratio (0..1)
-            if let Some(percent) = data.tunnels_successrate {
-                let ratio = (percent / 100.0).clamp(0.0, 1.0);
-                help(
-                    &mut output,
-                    "i2p_router_tunnels_success_ratio",
-                    "Tunnel build success rate as a ratio (0..1)",
-                    "gauge",
-                );
-                sample(
-                    &mut output,
-                    "i2p_router_tunnels_success_ratio",
-                    &[],
-                    format!("{:.6}", ratio),
-                );
-            }
-
-            // Metrics: NetDB Peer Statistics
-            if let Some(count) = data.netdb_activepeers {
-                help(
-                    &mut output,
-                    "i2p_router_netdb_activepeers",
-                    "Number of active known peers in NetDB",
-                    "gauge",
-                );
-                sample(&mut output, "i2p_router_netdb_activepeers", &[], count);
-            }
-            if let Some(count) = data.netdb_knownpeers {
-                help(
-                    &mut output,
-                    "i2p_router_netdb_knownpeers",
-                    "Total number of known peers (RouterInfos) in NetDB",
-                    "gauge",
-                );
-                sample(&mut output, "i2p_router_netdb_knownpeers", &[], count);
-            }
-
-            // Metrics: Total Network Bytes (received/sent)
-            if data.net_total_received_bytes.is_some() || data.net_total_sent_bytes.is_some() {
-                help(
-                    &mut output,
-                    "i2p_router_net_bytes_total",
-                    "Total network bytes since router start",
-                    "counter",
-                );
-                if let Some(v) = data.net_total_received_bytes {
-                    sample(
-                        &mut output,
-                        "i2p_router_net_bytes_total",
-                        &[("direction", "in")],
-                        v,
-                    );
-                }
-                if let Some(v) = data.net_total_sent_bytes {
-                    sample(
-                        &mut output,
-                        "i2p_router_net_bytes_total",
-                        &[("direction", "out")],
-                        v,
-                    );
-                }
-            }
-
-            // Metric: Exporter build info (info gauge)
-            help(
-                &mut output,
-                "i2pd_exporter_build_info",
-                "Exporter build information",
-                "gauge",
-            );
-            // Use CARGO_PKG_VERSION env var set at compile time
-            let exporter_version = escape_label(EXPORTER_VERSION);
-            sample(
-                &mut output,
-                "i2pd_exporter_build_info",
-                &[("version", &exporter_version)],
-                1,
-            );
-
-            return Ok(output);
+            return Ok(data);
         }
     }
+
+    // Fetch metrics using the 'RouterInfo' API method and format them for Prometheus.
+    // Handles token acquisition and re-authentication if the token expires.
+    async fn fetch_metrics(
+        &self,
+        timeout: Duration,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        let data = self.fetch_router_info(timeout).await?;
+        Ok(format_metrics(&data))
+    }
+}
+
+// Format RouterInfo data as Prometheus metrics output.
+fn format_metrics(data: &RouterInfoResult) -> String {
+    // Build the Prometheus output
+    let mut output = String::with_capacity(1024);
+
+    // Router status (I2PControl returns "1" or "0" as a string)
+    if let Some(status) = &data.router_status {
+        help(
+            &mut output,
+            "i2p_router_status",
+            "Router status (1 or 0)",
+            "gauge",
+        );
+        let status_value = status.trim().parse::<u64>().unwrap_or(0);
+        sample(&mut output, "i2p_router_status", &[], status_value);
+    }
+
+    // Router build info (with version label)
+    if let Some(version) = &data.router_version {
+        help(
+            &mut output,
+            "i2p_router_build_info",
+            "Router build information",
+            "gauge",
+        );
+        sample(
+            &mut output,
+            "i2p_router_build_info",
+            &[("version", version.as_str())],
+            1,
+        );
+    }
+
+    // Metric: Router Uptime (convert ms to seconds)
+    if let Some(ms) = data.router_uptime {
+        let seconds = (ms as f64) / 1000.0; // Convert ms to s
+        help(
+            &mut output,
+            "i2p_router_uptime_seconds",
+            "Router uptime in seconds",
+            "gauge",
+        );
+        sample(
+            &mut output,
+            "i2p_router_uptime_seconds",
+            &[],
+            format!("{:.3}", seconds),
+        );
+    }
+
+    // Metrics: Bandwidth (Inbound/Outbound, 1s/15s windows, Bytes/sec)
+    let any_bw = data.bw_inbound_1s.is_some()
+        || data.bw_inbound_15s.is_some()
+        || data.bw_outbound_1s.is_some()
+        || data.bw_outbound_15s.is_some();
+    if any_bw {
+        help(
+            &mut output,
+            "i2p_router_net_bw_bytes_per_second",
+            "Router bandwidth in bytes/sec",
+            "gauge",
+        );
+    }
+    if data.bw_inbound_1s.is_some() || data.bw_inbound_15s.is_some() {
+        if let Some(bw) = data.bw_inbound_1s {
+            // 1-second average
+            sample(
+                &mut output,
+                "i2p_router_net_bw_bytes_per_second",
+                &[("direction", "inbound"), ("window", "1s")],
+                bw,
+            );
+        }
+        if let Some(bw) = data.bw_inbound_15s {
+            // 15-second average
+            sample(
+                &mut output,
+                "i2p_router_net_bw_bytes_per_second",
+                &[("direction", "inbound"), ("window", "15s")],
+                bw,
+            );
+        }
+    }
+    if data.bw_outbound_1s.is_some() || data.bw_outbound_15s.is_some() {
+        // Outbound points (no duplicate HELP/TYPE)
+        if let Some(bw) = data.bw_outbound_1s {
+            // 1-second average
+            sample(
+                &mut output,
+                "i2p_router_net_bw_bytes_per_second",
+                &[("direction", "outbound"), ("window", "1s")],
+                bw,
+            );
+        }
+        if let Some(bw) = data.bw_outbound_15s {
+            // 15-second average
+            sample(
+                &mut output,
+                "i2p_router_net_bw_bytes_per_second",
+                &[("direction", "outbound"), ("window", "15s")],
+                bw,
+            );
+        }
+    }
+
+    // Metric: Net Status (IPv4)
+    if let Some(status) = data.net_status {
+        help(
+            &mut output,
+            "i2p_router_net_status",
+            "IPv4 network status as states (ok, firewalled, unknown, proxy, mesh)",
+            "gauge",
+        );
+        let active = match status {
+            0 => "ok",
+            1 => "firewalled",
+            2 => "unknown",
+            3 => "proxy",
+            4 => "mesh",
+            _ => "unknown",
+        };
+        for state in ["ok", "firewalled", "unknown", "proxy", "mesh"].iter() {
+            let val = if *state == active { 1 } else { 0 };
+            sample(
+                &mut output,
+                "i2p_router_net_status",
+                &[("state", state)],
+                val,
+            );
+        }
+
+        // Metric: Net Status Code (raw numeric value)
+        help(
+            &mut output,
+            "i2p_router_net_status_code",
+            "IPv4 network status code (0=OK, 1=Firewalled, 2=Unknown, 3=Proxy, 4=Mesh)",
+            "gauge",
+        );
+        sample(&mut output, "i2p_router_net_status_code", &[], status);
+    }
+
+    // Metric: Participating Tunnels
+    if let Some(count) = data.tunnels_participating {
+        help(
+            &mut output,
+            "i2p_router_tunnels_participating",
+            "Number of active participating transit tunnels",
+            "gauge",
+        );
+        sample(&mut output, "i2p_router_tunnels_participating", &[], count);
+    }
+
+    // Metric: Tunnels success rate as ratio (0..1)
+    if let Some(percent) = data.tunnels_successrate {
+        let ratio = (percent / 100.0).clamp(0.0, 1.0);
+        help(
+            &mut output,
+            "i2p_router_tunnels_success_ratio",
+            "Tunnel build success rate as a ratio (0..1)",
+            "gauge",
+        );
+        sample(
+            &mut output,
+            "i2p_router_tunnels_success_ratio",
+            &[],
+            format!("{:.6}", ratio),
+        );
+    }
+
+    // Metrics: NetDB Peer Statistics
+    if let Some(count) = data.netdb_activepeers {
+        help(
+            &mut output,
+            "i2p_router_netdb_activepeers",
+            "Number of active known peers in NetDB",
+            "gauge",
+        );
+        sample(&mut output, "i2p_router_netdb_activepeers", &[], count);
+    }
+    if let Some(count) = data.netdb_knownpeers {
+        help(
+            &mut output,
+            "i2p_router_netdb_knownpeers",
+            "Total number of known peers (RouterInfos) in NetDB",
+            "gauge",
+        );
+        sample(&mut output, "i2p_router_netdb_knownpeers", &[], count);
+    }
+
+    // Metrics: Total Network Bytes (received/sent)
+    if data.net_total_received_bytes.is_some() || data.net_total_sent_bytes.is_some() {
+        help(
+            &mut output,
+            "i2p_router_net_bytes_total",
+            "Total network bytes since router start",
+            "counter",
+        );
+        if let Some(v) = data.net_total_received_bytes {
+            sample(
+                &mut output,
+                "i2p_router_net_bytes_total",
+                &[("direction", "inbound")],
+                v,
+            );
+        }
+        if let Some(v) = data.net_total_sent_bytes {
+            sample(
+                &mut output,
+                "i2p_router_net_bytes_total",
+                &[("direction", "outbound")],
+                v,
+            );
+        }
+    }
+
+    // Metric: Exporter build info (info gauge)
+    help(
+        &mut output,
+        "i2pd_exporter_build_info",
+        "Exporter build information",
+        "gauge",
+    );
+    // Use CARGO_PKG_VERSION env var set at compile time
+    sample(
+        &mut output,
+        "i2pd_exporter_build_info",
+        &[("version", EXPORTER_VERSION)],
+        1,
+    );
+
+    output
 }
 
 #[tokio::main]
@@ -581,29 +623,58 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         api_client,
         format!("{}/jsonrpc", i2p_addr.trim_end_matches('/')),
         i2p_password,
+        Duration::from_secs(http_timeout),
     ));
 
     // Attempt initial auth (logs error if fails; will retry on first request anyway)
     if !state.password.is_empty() {
-        if let Err(e) = state.authenticate().await {
+        if let Err(e) = state.authenticate(state.base_http_timeout).await {
             error!("Initial authentication failed: {}", e);
         }
     }
 
     // Define a small async handler function for /metrics
-    async fn metrics_handler(st: Arc<AppState>) -> Result<impl warp::Reply, warp::Rejection> {
+    async fn metrics_handler(
+        st: Arc<AppState>,
+        headers: HeaderMap,
+    ) -> Result<impl warp::Reply, warp::Rejection> {
         let t0 = Instant::now();
 
-        // Attempt to fetch target metrics
-        let (status_code, mut body) = match st.fetch_metrics().await {
-            Ok(metrics) => (warp::http::StatusCode::OK, metrics),
-            Err(err) => {
+        // Compute effective timeout for this scrape based on Prometheus header
+        // X-Prometheus-Scrape-Timeout-Seconds is a float seconds budget
+        let mut effective_timeout = st.base_http_timeout;
+        if let Some(val) = headers.get("X-Prometheus-Scrape-Timeout-Seconds") {
+            if let Ok(s) = val.to_str() {
+                if let Ok(hdr_secs) = s.parse::<f64>() {
+                    // Subtract 0.5s safety margin; clamp to a small minimum
+                    let mut hdr_budget = hdr_secs - 0.5;
+                    if hdr_budget <= 0.0 {
+                        hdr_budget = 0.1; // minimal to avoid zero
+                    }
+                    let hdr_dur = Duration::from_secs_f64(hdr_budget);
+                    if hdr_dur < effective_timeout {
+                        effective_timeout = hdr_dur;
+                    }
+                }
+            }
+        }
+
+        // Attempt to fetch target metrics within the overall scrape budget
+        let (status_code, mut body) = match tokio::time::timeout(
+            effective_timeout,
+            st.fetch_metrics(effective_timeout),
+        )
+        .await
+        {
+            Err(_elapsed) => (warp::http::StatusCode::GATEWAY_TIMEOUT, String::new()),
+            Ok(Ok(metrics)) => (warp::http::StatusCode::OK, metrics),
+            Ok(Err(err)) => {
                 error!("Failed to fetch metrics: {}", err);
                 (warp::http::StatusCode::INTERNAL_SERVER_ERROR, String::new())
             }
         };
 
-        // Always append exporter self-metrics: scrape duration and totals
+        // Always append exporter self-metrics: scrape duration
         let scrape_seconds = t0.elapsed().as_secs_f64();
         help(
             &mut body,
@@ -617,16 +688,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             &[],
             scrape_seconds,
         );
-
-        // Increment and expose a total scrapes counter
-        let total = st.scrapes_total.fetch_add(1, Ordering::Relaxed) + 1;
-        help(
-            &mut body,
-            "i2pd_exporter_scrapes_total",
-            "Total scrapes since exporter start",
-            "counter",
-        );
-        sample(&mut body, "i2pd_exporter_scrapes_total", &[], total);
 
         let reply = warp::reply::with_status(body, status_code);
         let reply = warp::reply::with_header(
@@ -643,6 +704,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .and(warp::path::end())
         .and(warp::get())
         .and(warp::any().map(move || state.clone()))
+        .and(warp::header::headers_cloned())
         .and_then(metrics_handler);
 
     // Fallback 404 only for root path; avoid matching subpaths

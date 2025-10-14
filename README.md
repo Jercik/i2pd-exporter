@@ -2,6 +2,8 @@
 
 A **tiny, pure‑Rust** Prometheus exporter that surfaces metrics from the i2pd _I2PControl_ JSON‑RPC API.
 
+Important: This exporter targets the i2pd (C++) router’s I2PControl interface. It does not support the Java I2P router.
+
 ---
 
 ## Highlights
@@ -52,7 +54,7 @@ CI runs both (rustfmt check + clippy) on pushes and PRs.
 | `I2PCONTROL_PASSWORD`        | `itoopie`                | I2PControl password **(required)**                                  |
 | `I2PCONTROL_TLS_INSECURE`    | (unset)                  | Set to `1` to accept invalid TLS certs for non-loopback connections |
 | `METRICS_LISTEN_ADDR`        | `0.0.0.0:9600`           | Address:port for metrics                                            |
-| `HTTP_TIMEOUT_SECONDS`       | `60`                     | API request timeout (seconds)                                       |
+| `HTTP_TIMEOUT_SECONDS`       | `60`                     | Upper bound per I2PControl request; overall scrape also honors Prometheus timeout |
 | `DEBUG_I2PCONTROL_BODY`      | (unset)                  | Set to `1` to log RouterInfo response bodies (debug only)           |
 
 ---
@@ -64,19 +66,19 @@ CI runs both (rustfmt check + clippy) on pushes and PRs.
 - `i2p_router_status`
 - `i2p_router_build_info{version}`
 - `i2p_router_uptime_seconds`
-- `i2p_router_net_bw_bytes_per_second{direction,window}` — direction: `in`|`out`, window: `1s`|`15s`
+- `i2p_router_net_bw_bytes_per_second{direction,window}` — direction: `inbound`|`outbound`, window: `1s`|`15s`
 - `i2p_router_net_status{state}` — state: `ok`|`firewalled`|`unknown`|`proxy`|`mesh`
+- `i2p_router_net_status_code` — raw status code: 0=OK, 1=Firewalled, 2=Unknown, 3=Proxy, 4=Mesh
 - `i2p_router_tunnels_participating`
 - `i2p_router_tunnels_success_ratio`
 - `i2p_router_netdb_activepeers`
 - `i2p_router_netdb_knownpeers`
-- `i2p_router_net_bytes_total{direction}` — direction: `in`|`out`
+- `i2p_router_net_bytes_total{direction}` — direction: `inbound`|`outbound`
 
 ### Exporter metrics
 
 - `i2pd_exporter_build_info{version}`
 - `i2pd_exporter_scrape_duration_seconds`
-- `i2pd_exporter_scrapes_total`
 
 The standard Prometheus `up` metric (1=success, 0=failure) is automatically added by Prometheus during scraping.
 
@@ -84,9 +86,17 @@ The standard Prometheus `up` metric (1=success, 0=failure) is automatically adde
 
 - `i2p_router_status`: router status exported as a numeric gauge parsed from the string value returned by `i2p.router.status` ("1" or "0").
 - `i2p_router_net_status`: IPv4 network status exported as a set of state-labeled gauges where one state is `1` and others `0`.
+- `i2p_router_net_status_code`: IPv4 network status as a raw numeric code (0=OK, 1=Firewalled, 2=Unknown, 3=Proxy, 4=Mesh).
 - `i2p_router_tunnels_success_ratio`: tunnel build success rate as a ratio in `[0,1]`.
 - `i2pd_exporter_scrape_duration_seconds`: time (in seconds) to collect and format the last scrape.
-- `i2pd_exporter_scrapes_total`: total number of scrapes since exporter start (counter).
+
+### Scrape timeout behavior
+
+- The exporter honors Prometheus' `X-Prometheus-Scrape-Timeout-Seconds` header.
+- A small safety margin (0.5s) is subtracted from the header value.
+- The effective budget is `min(HTTP_TIMEOUT_SECONDS, header_minus_margin)`.
+- The entire collection is wrapped in this timeout; re-auth and multiple RPCs cannot exceed it.
+- If the effective budget is exceeded, the exporter responds `504 Gateway Timeout`.
 
 ---
 
