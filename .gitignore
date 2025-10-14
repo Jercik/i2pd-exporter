@@ -16,3 +16,8 @@
 
 # Debug files
 *.pdb
+
+# AI coding assistants
+CLAUDE.md
+GEMINI.md
+AGENTS.md
