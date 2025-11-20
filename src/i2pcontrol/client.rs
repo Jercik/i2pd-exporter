@@ -150,8 +150,8 @@ impl I2pControlClient {
                 "i2p.router.net.total.sent.bytes", // Request total sent bytes
                 "i2p.router.net.transit.sent.bytes", // Request total transit-sent bytes
             ] {
-                // Value::Null indicates we want the value for this key
-                params.insert((*key).to_string(), Value::Null);
+                // Use empty string instead of null; some i2pd builds reject nulls with parse errors.
+                params.insert((*key).to_string(), Value::String(String::new()));
             }
             // Include the authentication token in the parameters
             params.insert("Token".to_string(), Value::String(token.clone()));

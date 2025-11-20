@@ -1,6 +1,6 @@
 // Generic JSON-RPC client for I2PControl
 
-use reqwest::header::CONTENT_TYPE;
+use reqwest::header::{CONTENT_LENGTH, CONTENT_TYPE};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use std::time::Duration;
@@ -62,6 +62,29 @@ pub enum RpcOutcome<T> {
     Err { error: RpcError },
 }
 
+fn redact_sensitive_fields(mut v: serde_json::Value) -> serde_json::Value {
+    match &mut v {
+        serde_json::Value::Object(map) => {
+            for (k, val) in map.iter_mut() {
+                if matches!(k.as_str(), "Password" | "Token") {
+                    *val = serde_json::Value::String("***redacted***".to_string());
+                } else {
+                    *val = redact_sensitive_fields(val.take());
+                }
+            }
+            serde_json::Value::Object(map.clone())
+        }
+        serde_json::Value::Array(arr) => {
+            let redacted: Vec<_> = arr
+                .iter_mut()
+                .map(|val| redact_sensitive_fields(val.take()))
+                .collect();
+            serde_json::Value::Array(redacted)
+        }
+        _ => v,
+    }
+}
+
 // Generic JSON-RPC call helper
 pub async fn rpc_call<T: DeserializeOwned>(
     client: &reqwest::Client,
@@ -84,9 +107,19 @@ pub async fn rpc_call<T: DeserializeOwned>(
         method: method.to_string(),
     })?;
 
+    if std::env::var("DEBUG_I2PCONTROL_REQ").ok().as_deref() == Some("1") {
+        let redacted = redact_sensitive_fields(req.clone());
+        if let Ok(body_str) = serde_json::to_string(&redacted) {
+            log::info!("{} request body: {}", method, body_str);
+        }
+    }
+
+    let content_length = body.len() as u64;
+
     let resp = client
         .post(url)
         .header(CONTENT_TYPE, "application/json")
+        .header(CONTENT_LENGTH, content_length)
         .body(body)
         .timeout(timeout)
         .send()
