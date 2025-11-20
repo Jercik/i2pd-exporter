@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "Building i2pd-exporter for x86_64 Linux..."
+echo "Building i2pd-exporter for x86_64 Linux (GNU)..."
 docker build -t i2pd-exporter-build -f Dockerfile.build .
 
 echo "Extracting binary..."

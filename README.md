@@ -1,133 +1,105 @@
 # i2pd‑exporter
 
-A **tiny, pure‑Rust** Prometheus exporter that surfaces metrics from the i2pd _I2PControl_ JSON‑RPC API.
+Tiny, pure‑Rust Prometheus exporter for the **i2pd (C++)** router via **I2PControl JSON‑RPC (API=1)**.
+**Not** compatible with the Java I2P router.
 
-Important: This exporter targets the i2pd (C++) router’s I2PControl interface. It does not support the Java I2P router.
-
----
-
-## Highlights
-
-- Polls I2PControl and serves metrics on **:9600** (configurable).
-- Negotiates API tokens automatically.
-- Negligible memory & CPU footprint.
-- Metrics cover router status, uptime, bandwidth, peers, tunnels and exporter version.
+- Serves metrics at **`/metrics`** (default listen: `0.0.0.0:9600`)
+- Handles token auth and retries once on token errors
+- Exposes router metrics (status, uptime, bandwidth, IPv4/IPv6 network status, tunnels, NetDB, totals) + exporter self‑metrics
+- Small static binary (LTO, stripped)
 
 ---
 
-## Quick start
+## Quick start
 
 ```bash
-cargo build --release               # native build
-./target/release/i2pd-exporter --version # Check version
-./target/release/i2pd-exporter      # Run the exporter
-```
+# Build
+cargo build --release
 
-### Static Linux (Docker)
+# Version
+./target/release/i2pd-exporter --version
 
-```bash
-./build-static-linux-docker.sh      # outputs to ./dist/
-```
+# Run (defaults to https://127.0.0.1:7650 for I2PControl)
+RUST_LOG=info ./target/release/i2pd-exporter
+````
 
----
-
-## Releases
-
-GitHub releases include pre-compiled static Linux binaries (`.tar.gz`) for `x86_64` and `aarch64`. Each release also provides a `sha256sums.txt` file for verifying archive integrity.
-
----
-
-## Development
-
-- Format: `cargo fmt --all`
-- Lint: `cargo clippy --all-targets --all-features -- -D warnings`
-
-CI runs both (rustfmt check + clippy) on pushes and PRs.
+Optional cross‑build for Linux (x86_64): `./build-linux-docker.sh` → `./dist/i2pd-exporter`.
 
 ---
 
 ## Configuration
 
-| Variable                     | Default                  | Purpose                                                             |
-| ---------------------------- | ------------------------ | ------------------------------------------------------------------- |
-| `I2PCONTROL_ADDRESS`         | `https://127.0.0.1:7650` | I2PControl endpoint (`/jsonrpc` appended)                           |
-| `I2PCONTROL_PASSWORD`        | `itoopie`                | I2PControl password **(required)**                                  |
-| `I2PCONTROL_TLS_INSECURE`    | (unset)                  | Set to `1` to accept invalid TLS certs for non-loopback connections |
-| `METRICS_LISTEN_ADDR`        | `0.0.0.0:9600`           | Address:port for metrics                                            |
-| `HTTP_TIMEOUT_SECONDS`       | `60`                     | Upper bound per I2PControl request; overall scrape also honors Prometheus timeout |
-| `DEBUG_I2PCONTROL_BODY`      | (unset)                  | Set to `1` to log RouterInfo response bodies (debug only)           |
+> Provide the **base I2PControl URL without `/jsonrpc`**. The exporter appends `/jsonrpc`.
+
+| CLI flag                       | Env var                      | Default                  | Description                                   |
+| ------------------------------ | ---------------------------- | ------------------------ | --------------------------------------------- |
+| `--i2pcontrol-address`         | `I2PCONTROL_ADDRESS`         | `https://127.0.0.1:7650` | I2PControl base URL (http or https).          |
+| `--i2pcontrol-password`        | `I2PCONTROL_PASSWORD`        | `itoopie`                | I2PControl password.                          |
+| `--metrics-listen-addr`        | `METRICS_LISTEN_ADDR`        | `0.0.0.0:9600`           | Address:port for the HTTP server.             |
+| `--i2pcontrol-tls-insecure`    | `I2PCONTROL_TLS_INSECURE`    | `false`                  | Accept invalid TLS certs (not recommended).   |
+| `--max-scrape-timeout-seconds` | `MAX_SCRAPE_TIMEOUT_SECONDS` | `120`                    | **Hard cap** for the effective scrape budget. |
+
+**TLS tip:** Self‑signed loopback (`127.0.0.1`/`localhost`) is automatically allowed; for remote HTTPS targets, prefer proper certificates.
 
 ---
 
-## Metrics cheat‑sheet
+## HTTP
 
-### Router metrics
+* **GET** `/:` → `404 Not Found`
+* **GET** `/metrics` → **OpenMetrics** text format
 
-- `i2p_router_status`
-- `i2p_router_build_info{version}`
-- `i2p_router_uptime_seconds`
-- `i2p_router_net_bw_bytes_per_second{direction,window}` — direction: `inbound`|`outbound`, window: `1s`|`15s`
-- `i2p_router_net_status{state}` — state: `ok`|`firewalled`|`unknown`|`proxy`|`mesh`
-- `i2p_router_net_status_code` — raw status code: 0=OK, 1=Firewalled, 2=Unknown, 3=Proxy, 4=Mesh
-- `i2p_router_tunnels_participating`
-- `i2p_router_tunnels_success_ratio`
-- `i2p_router_netdb_activepeers`
-- `i2p_router_netdb_knownpeers`
-- `i2p_router_net_bytes_total{direction}` — direction: `inbound`|`outbound`
+  * `Content-Type: application/openmetrics-text; version=1.0.0; charset=utf-8`
+  * `Cache-Control: no-store`
 
-### Exporter metrics
-
-- `i2pd_exporter_build_info{version}`
-- `i2pd_exporter_scrape_duration_seconds`
-
-The standard Prometheus `up` metric (1=success, 0=failure) is automatically added by Prometheus during scraping.
-
-### Notes
-
-- `i2p_router_status`: router status exported as a numeric gauge parsed from the string value returned by `i2p.router.status` ("1" or "0").
-- `i2p_router_net_status`: IPv4 network status exported as a set of state-labeled gauges where one state is `1` and others `0`.
-- `i2p_router_net_status_code`: IPv4 network status as a raw numeric code (0=OK, 1=Firewalled, 2=Unknown, 3=Proxy, 4=Mesh).
-- `i2p_router_tunnels_success_ratio`: tunnel build success rate as a ratio in `[0,1]`.
-- `i2pd_exporter_scrape_duration_seconds`: time (in seconds) to collect and format the last scrape.
-
-### Scrape timeout behavior
-
-- The exporter honors Prometheus' `X-Prometheus-Scrape-Timeout-Seconds` header.
-- A small safety margin (0.5s) is subtracted from the header value.
-- The effective budget is `min(HTTP_TIMEOUT_SECONDS, header_minus_margin)`.
-- The entire collection is wrapped in this timeout; re-auth and multiple RPCs cannot exceed it.
-- If the effective budget is exceeded, the exporter responds `504 Gateway Timeout`.
+> Note: The server always emits OpenMetrics text (1.0.0). Prometheus and many agents request this via `Accept: application/openmetrics-text;version=1.0.0`. Some browsers may download the response rather than rendering it inline if OpenMetrics is not explicitly accepted.
 
 ---
 
-## systemd unit (example)
+## Scrape timeout (required header)
 
-```ini
-[Unit]
-Description=I2Pd Control Metrics Exporter
-Requires=i2pd.service
-After=i2pd.service
+Prometheus must send `X-Prometheus-Scrape-Timeout-Seconds`. The exporter computes:
 
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/i2pd-exporter
-Environment="I2PCONTROL_ADDRESS=https://127.0.0.1:7650"
-Environment="I2PCONTROL_PASSWORD=YOUR_I2PD_CONTROL_PASSWORD"
-Environment="METRICS_LISTEN_ADDR=0.0.0.0:9446"
-Environment="RUST_LOG=info"
-Restart=on-failure
-RestartSec=10
-User=i2pd
-Group=i2pd
-
-[Install]
-WantedBy=multi-user.target
+```
+candidate = (header_secs > 3.0) ? header_secs - 0.5 : header_secs
+effective = min(candidate, MAX_SCRAPE_TIMEOUT_SECONDS)
+effective is clamped to >= 0.1s
 ```
 
-Enable and launch:
+* Missing/invalid header → **400 Bad Request**
+* Budget exceeded → **504 Gateway Timeout**
+* Self‑metrics always include the computed budget.
 
-```bash
-sudo systemctl enable i2pd-exporter.service
-sudo systemctl start i2pd-exporter.service
-sudo systemctl status i2pd-exporter.service
-```
+---
+
+## Metrics (overview)
+
+**Router:**
+
+* `i2p_router_status`
+* `i2p_router_build_info{version}`
+* `i2p_router_uptime_seconds`
+* `i2p_router_net_bw_bytes_per_second{direction,window}` (`1s`,`15s`)
+* `i2p_router_net_status{state}` + `i2p_router_net_status_code`
+* `i2p_router_net_status_v6{state}` + `i2p_router_net_status_v6_code`
+* `i2p_router_tunnels_participating`, `i2p_router_tunnels_success_ratio`
+* `i2p_router_netdb_activepeers`, `i2p_router_netdb_knownpeers`
+* `i2p_router_net_bytes_total{direction}`
+
+**Exporter:**
+
+* `i2pd_exporter_build_info{version}`
+* `i2pd_exporter_scrape_duration_seconds`
+* `i2pd_exporter_effective_scrape_timeout_seconds`
+* `i2pd_exporter_last_scrape_error`
+
+---
+
+## Releases
+
+GitHub Releases include prebuilt Linux archives for **`x86_64-unknown-linux-gnu`** and **`aarch64-unknown-linux-gnu`**, plus `sha256sums.txt`.
+
+---
+
+## License
+
+# [MIT](./LICENSE)

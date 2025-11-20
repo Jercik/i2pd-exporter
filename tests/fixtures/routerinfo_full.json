@@ -1,0 +1,18 @@
+{
+  "i2p.router.status": "1",
+  "i2p.router.version": "2.49.0",
+  "i2p.router.uptime": 1234567,
+  "i2p.router.net.bw.inbound.1s": 1024.5,
+  "i2p.router.net.bw.inbound.15s": 2048.25,
+  "i2p.router.net.bw.outbound.1s": 512.0,
+  "i2p.router.net.bw.outbound.15s": 256.0,
+  "i2p.router.net.status": 0,
+  "i2p.router.net.status.v6": 1,
+  "i2p.router.net.tunnels.participating": 7,
+  "i2p.router.net.tunnels.successrate": 87.0,
+  "i2p.router.netdb.activepeers": 42,
+  "i2p.router.netdb.knownpeers": 1234,
+  "i2p.router.net.total.received.bytes": 123456.0,
+  "i2p.router.net.total.sent.bytes": 654321.0
+}
+

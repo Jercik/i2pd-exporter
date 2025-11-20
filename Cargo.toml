@@ -1,6 +1,6 @@
 [package]
 name = "i2pd-exporter"
-version = "2.0.0-beta.2"
+version = "2.0.0-beta.3"
 edition = "2021"
 authors = ["The i2pd-exporter Contributors"]
 description = "Prometheus exporter for i2pd (C++ via I2PControl). Not for Java I2P."
@@ -13,10 +13,17 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "net",
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde-aux = "4"
 env_logger = "0.11"
 log = "0.4"
-warp = "0.3"
-clap = { version = "4.5", features = ["derive"] } # For CLI argument parsing (--version flag)
+warp = { version = "0.4", features = ["server"] }
+clap = { version = "4.5", features = ["derive", "env"] } # For CLI argument parsing (--version flag) and env vars
+prometheus-client = "0.24"
+thiserror = "2"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
 
 [profile.release]
 opt-level = 'z'      # Optimize for size
@@ -25,5 +32,4 @@ codegen-units = 1    # Reduce parallel code generation units for better optimiza
 panic = 'abort'      # Abort on panic for smaller binary size
 strip = true         # Strip symbols from binary
 
-[target.'cfg(target_env = "musl")'.dependencies]
-openssl = { version = "0.10", features = ["vendored"] }
+ 

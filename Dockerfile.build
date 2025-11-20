@@ -5,7 +5,6 @@ RUN apt-get update && apt-get install -y \
     curl \
     build-essential \
     pkg-config \
-    libssl-dev \
     gcc-x86-64-linux-gnu \
     binutils-x86-64-linux-gnu \
     && rm -rf /var/lib/apt/lists/*

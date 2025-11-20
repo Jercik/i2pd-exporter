@@ -1,0 +1,52 @@
+# HELP i2p_router_status Router status (1 or 0).
+# TYPE i2p_router_status gauge
+i2p_router_status 1.0
+# HELP i2p_router_build_info Router build information.
+# TYPE i2p_router_build_info gauge
+i2p_router_build_info{version="2.49.0"} 1.0
+# HELP i2p_router_uptime_seconds Router uptime in seconds.
+# TYPE i2p_router_uptime_seconds gauge
+i2p_router_uptime_seconds 1234.567
+# HELP i2p_router_net_bw_bytes_per_second Router bandwidth in bytes/sec.
+# TYPE i2p_router_net_bw_bytes_per_second gauge
+i2p_router_net_bw_bytes_per_second{direction="inbound",window="15s"} 2048.25
+i2p_router_net_bw_bytes_per_second{direction="outbound",window="1s"} 512.0
+i2p_router_net_bw_bytes_per_second{direction="inbound",window="1s"} 1024.5
+i2p_router_net_bw_bytes_per_second{direction="outbound",window="15s"} 256.0
+# HELP i2p_router_net_status IPv4 network status as states (ok, firewalled, unknown, proxy, mesh).
+# TYPE i2p_router_net_status gauge
+i2p_router_net_status{state="mesh"} 0.0
+i2p_router_net_status{state="ok"} 1.0
+i2p_router_net_status{state="firewalled"} 0.0
+i2p_router_net_status{state="unknown"} 0.0
+i2p_router_net_status{state="proxy"} 0.0
+# HELP i2p_router_net_status_code IPv4 network status code (0=OK, 1=Firewalled, 2=Unknown, 3=Proxy, 4=Mesh).
+# TYPE i2p_router_net_status_code gauge
+i2p_router_net_status_code 0.0
+# HELP i2p_router_net_status_v6 IPv6 network status as states (ok, firewalled, unknown, proxy, mesh).
+# TYPE i2p_router_net_status_v6 gauge
+i2p_router_net_status_v6{state="proxy"} 0.0
+i2p_router_net_status_v6{state="ok"} 0.0
+i2p_router_net_status_v6{state="firewalled"} 1.0
+i2p_router_net_status_v6{state="unknown"} 0.0
+i2p_router_net_status_v6{state="mesh"} 0.0
+# HELP i2p_router_net_status_v6_code IPv6 network status code (0=OK, 1=Firewalled, 2=Unknown, 3=Proxy, 4=Mesh).
+# TYPE i2p_router_net_status_v6_code gauge
+i2p_router_net_status_v6_code 1.0
+# HELP i2p_router_netdb_activepeers Number of active known peers in NetDB.
+# TYPE i2p_router_netdb_activepeers gauge
+i2p_router_netdb_activepeers 42.0
+# HELP i2p_router_netdb_knownpeers Total number of known peers (RouterInfos) in NetDB.
+# TYPE i2p_router_netdb_knownpeers gauge
+i2p_router_netdb_knownpeers 1234.0
+# HELP i2p_router_tunnels_participating Number of active participating transit tunnels.
+# TYPE i2p_router_tunnels_participating gauge
+i2p_router_tunnels_participating 7.0
+# HELP i2p_router_tunnels_success_ratio Tunnel build success rate as a ratio (0..1).
+# TYPE i2p_router_tunnels_success_ratio gauge
+i2p_router_tunnels_success_ratio 0.87
+# HELP i2p_router_net_bytes Total network bytes since router start.
+# TYPE i2p_router_net_bytes counter
+i2p_router_net_bytes_total{direction="inbound"} 123456.0
+i2p_router_net_bytes_total{direction="outbound"} 654321.0
+# EOF
