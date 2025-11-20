@@ -30,22 +30,50 @@ pub struct RouterInfoResult {
     pub bw_outbound_1s: Option<f64>,
     #[serde(rename = "i2p.router.net.bw.outbound.15s")]
     pub bw_outbound_15s: Option<f64>,
+    #[serde(rename = "i2p.router.net.bw.transit.15s")]
+    pub bw_transit_15s: Option<f64>,
     #[serde(rename = "i2p.router.net.status")]
     pub net_status: Option<u8>,
     #[serde(rename = "i2p.router.net.status.v6")]
     pub net_status_v6: Option<u8>,
+    #[serde(rename = "i2p.router.net.error")]
+    pub net_error: Option<u8>,
+    #[serde(rename = "i2p.router.net.error.v6")]
+    pub net_error_v6: Option<u8>,
+    #[serde(rename = "i2p.router.net.testing")]
+    #[serde(default, deserialize_with = "deserialize_option_number_from_string")]
+    pub net_testing: Option<u8>,
+    #[serde(rename = "i2p.router.net.testing.v6")]
+    #[serde(default, deserialize_with = "deserialize_option_number_from_string")]
+    pub net_testing_v6: Option<u8>,
     #[serde(rename = "i2p.router.net.tunnels.participating")]
     pub tunnels_participating: Option<u64>,
+    #[serde(rename = "i2p.router.net.tunnels.inbound")]
+    pub tunnels_inbound: Option<u64>,
+    #[serde(rename = "i2p.router.net.tunnels.outbound")]
+    pub tunnels_outbound: Option<u64>,
     #[serde(rename = "i2p.router.net.tunnels.successrate")]
     pub tunnels_successrate: Option<f64>,
+    #[serde(rename = "i2p.router.net.tunnels.totalsuccessrate")]
+    pub tunnels_total_successrate: Option<f64>,
+    #[serde(rename = "i2p.router.net.tunnels.queue")]
+    pub tunnels_queue: Option<u64>,
+    #[serde(rename = "i2p.router.net.tunnels.tbmqueue")]
+    pub tunnels_tbmqueue: Option<u64>,
     #[serde(rename = "i2p.router.netdb.activepeers")]
     pub netdb_activepeers: Option<u64>,
     #[serde(rename = "i2p.router.netdb.knownpeers")]
     pub netdb_knownpeers: Option<u64>,
+    #[serde(rename = "i2p.router.netdb.floodfills")]
+    pub netdb_floodfills: Option<u64>,
+    #[serde(rename = "i2p.router.netdb.leasesets")]
+    pub netdb_leasesets: Option<u64>,
     #[serde(rename = "i2p.router.net.total.received.bytes")]
     pub net_total_received_bytes: Option<f64>,
     #[serde(rename = "i2p.router.net.total.sent.bytes")]
     pub net_total_sent_bytes: Option<f64>,
+    #[serde(rename = "i2p.router.net.transit.sent.bytes")]
+    pub net_transit_sent_bytes: Option<f64>,
 }
 
 // (Old block removed)

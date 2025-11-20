@@ -25,6 +25,11 @@ struct StateLabel {
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+struct ErrorLabel {
+    error: &'static str,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 struct ExporterBuildInfoLabels {
     version: &'static str,
 }
@@ -36,7 +41,7 @@ struct RouterBuildInfoLabels {
 }
 
 fn bucket_state(code: u8, label: &str) -> f64 {
-    // Set exactly one state to 1.0 for known codes 0..=4.
+    // Set exactly one state to 1.0 for known codes 0..=5.
     // For any unknown code, map to the "unknown" bucket only.
     static UNKNOWN_NET_STATUS_LOGGED: AtomicBool = AtomicBool::new(false);
     match code {
@@ -45,9 +50,30 @@ fn bucket_state(code: u8, label: &str) -> f64 {
         2 => (label == "unknown") as u8 as f64,
         3 => (label == "proxy") as u8 as f64,
         4 => (label == "mesh") as u8 as f64,
+        5 => (label == "stan") as u8 as f64,
         _ => {
             if !UNKNOWN_NET_STATUS_LOGGED.swap(true, Ordering::Relaxed) {
                 log::warn!("Observed unknown net status code: {}", code);
+            }
+            (label == "unknown") as u8 as f64
+        }
+    }
+}
+
+fn bucket_error(code: u8, label: &str) -> f64 {
+    // Set one error bucket to 1.0 for known codes 0..=5.
+    // Unknown codes are mapped to "unknown" and logged once.
+    static UNKNOWN_NET_ERROR_LOGGED: AtomicBool = AtomicBool::new(false);
+    match code {
+        0 => (label == "none") as u8 as f64,
+        1 => (label == "clock_skew") as u8 as f64,
+        2 => (label == "offline") as u8 as f64,
+        3 => (label == "symmetric_nat") as u8 as f64,
+        4 => (label == "full_cone_nat") as u8 as f64,
+        5 => (label == "no_descriptors") as u8 as f64,
+        _ => {
+            if !UNKNOWN_NET_ERROR_LOGGED.swap(true, Ordering::Relaxed) {
+                log::warn!("Observed unknown net error code: {}", code);
             }
             (label == "unknown") as u8 as f64
         }
@@ -124,7 +150,8 @@ fn add_router_metrics(registry: &mut Registry, d: &RouterInfoResult) {
     let any_bw = d.bw_inbound_1s.is_some()
         || d.bw_inbound_15s.is_some()
         || d.bw_outbound_1s.is_some()
-        || d.bw_outbound_15s.is_some();
+        || d.bw_outbound_15s.is_some()
+        || d.bw_transit_15s.is_some();
     if any_bw {
         let fam = Family::<DirectionWindowLabels, Gauge<f64, AtomicU64>>::default();
         registry.register(
@@ -161,6 +188,13 @@ fn add_router_metrics(registry: &mut Registry, d: &RouterInfoResult) {
             })
             .set(v);
         }
+        if let Some(v) = d.bw_transit_15s {
+            fam.get_or_create(&DirectionWindowLabels {
+                direction: "transit",
+                window: "15s",
+            })
+            .set(v);
+        }
     }
 
     // i2p_router_net_status{state} + i2p_router_net_status_code (IPv4)
@@ -168,10 +202,10 @@ fn add_router_metrics(registry: &mut Registry, d: &RouterInfoResult) {
         let fam = Family::<StateLabel, Gauge<f64, AtomicU64>>::default();
         registry.register(
             "i2p_router_net_status",
-            "IPv4 network status as states (ok, firewalled, unknown, proxy, mesh)",
+            "IPv4 network status as states (ok, firewalled, unknown, proxy, mesh, stan)",
             fam.clone(),
         );
-        for label in ["ok", "firewalled", "unknown", "proxy", "mesh"] {
+        for label in ["ok", "firewalled", "unknown", "proxy", "mesh", "stan"] {
             fam.get_or_create(&StateLabel { state: label })
                 .set(bucket_state(code, label));
         }
@@ -179,7 +213,7 @@ fn add_router_metrics(registry: &mut Registry, d: &RouterInfoResult) {
         let g = Gauge::<f64, AtomicU64>::default();
         registry.register(
             "i2p_router_net_status_code",
-            "IPv4 network status code (0=OK, 1=Firewalled, 2=Unknown, 3=Proxy, 4=Mesh)",
+            "IPv4 network status code (0=OK, 1=Firewalled, 2=Unknown, 3=Proxy, 4=Mesh, 5=Stan)",
             g.clone(),
         );
         g.set(code as f64);
@@ -190,10 +224,10 @@ fn add_router_metrics(registry: &mut Registry, d: &RouterInfoResult) {
         let fam = Family::<StateLabel, Gauge<f64, AtomicU64>>::default();
         registry.register(
             "i2p_router_net_status_v6",
-            "IPv6 network status as states (ok, firewalled, unknown, proxy, mesh)",
+            "IPv6 network status as states (ok, firewalled, unknown, proxy, mesh, stan)",
             fam.clone(),
         );
-        for label in ["ok", "firewalled", "unknown", "proxy", "mesh"] {
+        for label in ["ok", "firewalled", "unknown", "proxy", "mesh", "stan"] {
             fam.get_or_create(&StateLabel { state: label })
                 .set(bucket_state(code, label));
         }
@@ -201,10 +235,90 @@ fn add_router_metrics(registry: &mut Registry, d: &RouterInfoResult) {
         let g = Gauge::<f64, AtomicU64>::default();
         registry.register(
             "i2p_router_net_status_v6_code",
-            "IPv6 network status code (0=OK, 1=Firewalled, 2=Unknown, 3=Proxy, 4=Mesh)",
+            "IPv6 network status code (0=OK, 1=Firewalled, 2=Unknown, 3=Proxy, 4=Mesh, 5=Stan)",
             g.clone(),
         );
         g.set(code as f64);
+    }
+
+    // i2p_router_net_error{error} + i2p_router_net_error_code (IPv4)
+    if let Some(code) = d.net_error {
+        let fam = Family::<ErrorLabel, Gauge<f64, AtomicU64>>::default();
+        registry.register(
+            "i2p_router_net_error",
+            "IPv4 network errors as states (none, clock_skew, offline, symmetric_nat, full_cone_nat, no_descriptors, unknown)",
+            fam.clone(),
+        );
+        for label in [
+            "none",
+            "clock_skew",
+            "offline",
+            "symmetric_nat",
+            "full_cone_nat",
+            "no_descriptors",
+            "unknown",
+        ] {
+            fam.get_or_create(&ErrorLabel { error: label })
+                .set(bucket_error(code, label));
+        }
+
+        let g = Gauge::<f64, AtomicU64>::default();
+        registry.register(
+            "i2p_router_net_error_code",
+            "IPv4 network error code (0=None, 1=ClockSkew, 2=Offline, 3=SymmetricNAT, 4=FullConeNAT, 5=NoDescriptors)",
+            g.clone(),
+        );
+        g.set(code as f64);
+    }
+
+    // i2p_router_net_error_v6{error} + i2p_router_net_error_v6_code (IPv6)
+    if let Some(code) = d.net_error_v6 {
+        let fam = Family::<ErrorLabel, Gauge<f64, AtomicU64>>::default();
+        registry.register(
+            "i2p_router_net_error_v6",
+            "IPv6 network errors as states (none, clock_skew, offline, symmetric_nat, full_cone_nat, no_descriptors, unknown)",
+            fam.clone(),
+        );
+        for label in [
+            "none",
+            "clock_skew",
+            "offline",
+            "symmetric_nat",
+            "full_cone_nat",
+            "no_descriptors",
+            "unknown",
+        ] {
+            fam.get_or_create(&ErrorLabel { error: label })
+                .set(bucket_error(code, label));
+        }
+
+        let g = Gauge::<f64, AtomicU64>::default();
+        registry.register(
+            "i2p_router_net_error_v6_code",
+            "IPv6 network error code (0=None, 1=ClockSkew, 2=Offline, 3=SymmetricNAT, 4=FullConeNAT, 5=NoDescriptors)",
+            g.clone(),
+        );
+        g.set(code as f64);
+    }
+
+    // i2p_router_net_testing / _v6
+    if let Some(flag) = d.net_testing {
+        let g = Gauge::<f64, AtomicU64>::default();
+        registry.register(
+            "i2p_router_net_testing",
+            "IPv4 network testing flag (0 or 1)",
+            g.clone(),
+        );
+        g.set((flag != 0) as u8 as f64);
+    }
+    if let Some(flag) = d.net_testing_v6 {
+        let g = Gauge::<f64, AtomicU64>::default();
+        registry.register(
+            "i2p_router_net_testing_v6",
+            "IPv6 network testing flag (0 or 1)",
+            g.clone(),
+        );
+        g.set((flag != 0) as u8 as f64);
     }
 
     // i2p_router_netdb_activepeers / knownpeers
@@ -226,13 +340,49 @@ fn add_router_metrics(registry: &mut Registry, d: &RouterInfoResult) {
         );
         g.set(v as f64);
     }
+    if let Some(v) = d.netdb_floodfills {
+        let g = Gauge::<f64, AtomicU64>::default();
+        registry.register(
+            "i2p_router_netdb_floodfills",
+            "Number of floodfill routers known to NetDB",
+            g.clone(),
+        );
+        g.set(v as f64);
+    }
+    if let Some(v) = d.netdb_leasesets {
+        let g = Gauge::<f64, AtomicU64>::default();
+        registry.register(
+            "i2p_router_netdb_leasesets",
+            "Number of LeaseSets known to NetDB",
+            g.clone(),
+        );
+        g.set(v as f64);
+    }
 
-    // i2p_router_tunnels_participating / _success_ratio
+    // i2p_router_tunnels_participating / _success_ratio (+ new tunnel metrics)
     if let Some(v) = d.tunnels_participating {
         let g = Gauge::<f64, AtomicU64>::default();
         registry.register(
             "i2p_router_tunnels_participating",
             "Number of active participating transit tunnels",
+            g.clone(),
+        );
+        g.set(v as f64);
+    }
+    if let Some(v) = d.tunnels_inbound {
+        let g = Gauge::<f64, AtomicU64>::default();
+        registry.register(
+            "i2p_router_tunnels_inbound",
+            "Number of inbound tunnels",
+            g.clone(),
+        );
+        g.set(v as f64);
+    }
+    if let Some(v) = d.tunnels_outbound {
+        let g = Gauge::<f64, AtomicU64>::default();
+        registry.register(
+            "i2p_router_tunnels_outbound",
+            "Number of outbound tunnels",
             g.clone(),
         );
         g.set(v as f64);
@@ -247,9 +397,39 @@ fn add_router_metrics(registry: &mut Registry, d: &RouterInfoResult) {
         );
         g.set(ratio);
     }
+    if let Some(percent) = d.tunnels_total_successrate {
+        let ratio = (percent / 100.0).clamp(0.0, 1.0);
+        let g = Gauge::<f64, AtomicU64>::default();
+        registry.register(
+            "i2p_router_tunnels_total_success_ratio",
+            "Aggregate tunnel build success rate as a ratio (0..1)",
+            g.clone(),
+        );
+        g.set(ratio);
+    }
+    if let Some(v) = d.tunnels_queue {
+        let g = Gauge::<f64, AtomicU64>::default();
+        registry.register(
+            "i2p_router_tunnels_queue",
+            "Tunnel build request queue size",
+            g.clone(),
+        );
+        g.set(v as f64);
+    }
+    if let Some(v) = d.tunnels_tbmqueue {
+        let g = Gauge::<f64, AtomicU64>::default();
+        registry.register(
+            "i2p_router_tunnels_tbmqueue",
+            "Transit build message queue size",
+            g.clone(),
+        );
+        g.set(v as f64);
+    }
 
     // i2p_router_net_bytes_total{direction} (counter)
-    let any_totals = d.net_total_received_bytes.is_some() || d.net_total_sent_bytes.is_some();
+    let any_totals = d.net_total_received_bytes.is_some()
+        || d.net_total_sent_bytes.is_some()
+        || d.net_transit_sent_bytes.is_some();
     if any_totals {
         let fam = Family::<DirectionLabels, Counter<f64>>::default();
         // prometheus_client appends `_total` for counters; register without the suffix
@@ -267,6 +447,12 @@ fn add_router_metrics(registry: &mut Registry, d: &RouterInfoResult) {
         if let Some(v) = d.net_total_sent_bytes {
             fam.get_or_create(&DirectionLabels {
                 direction: "outbound",
+            })
+            .inc_by(v);
+        }
+        if let Some(v) = d.net_transit_sent_bytes {
+            fam.get_or_create(&DirectionLabels {
+                direction: "transit",
             })
             .inc_by(v);
         }

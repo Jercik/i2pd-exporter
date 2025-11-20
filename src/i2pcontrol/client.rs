@@ -128,14 +128,27 @@ impl I2pControlClient {
                 "i2p.router.net.bw.inbound.15s",        // Request inbound bandwidth (15s avg, Bps)
                 "i2p.router.net.bw.outbound.1s",        // Request outbound bandwidth (1s avg, Bps)
                 "i2p.router.net.bw.outbound.15s",       // Request outbound bandwidth (15s avg, Bps)
-                "i2p.router.net.status", // Request IPv4 network status code (0 OK, 1 Firewalled, 2 Unknown, 3 Proxy, 4 Mesh)
+                "i2p.router.net.bw.transit.15s",        // Request transit bandwidth (15s avg, Bps)
+                "i2p.router.net.status", // Request IPv4 network status code (0 OK, 1 Firewalled, 2 Unknown, 3 Proxy, 4 Mesh, 5 Stan)
                 "i2p.router.net.status.v6", // Request IPv6 network status code (optional, same mapping)
+                "i2p.router.net.error", // Request IPv4 network error code
+                "i2p.router.net.error.v6", // Request IPv6 network error code
+                "i2p.router.net.testing", // Request IPv4 network testing flag
+                "i2p.router.net.testing.v6", // Request IPv6 network testing flag
                 "i2p.router.net.tunnels.participating", // Request participating tunnel count (0 or 1 likely)
+                "i2p.router.net.tunnels.inbound", // Request inbound tunnel count
+                "i2p.router.net.tunnels.outbound", // Request outbound tunnel count
                 "i2p.router.net.tunnels.successrate", // Request tunnel success rate (percent integer)
+                "i2p.router.net.tunnels.totalsuccessrate", // Request aggregate tunnel success rate (percent integer)
+                "i2p.router.net.tunnels.queue", // Request tunnel build queue size
+                "i2p.router.net.tunnels.tbmqueue", // Request transit build message queue size
                 "i2p.router.netdb.activepeers",       // Request active peer count (floodfills)
                 "i2p.router.netdb.knownpeers", // Request known peer count (total RouterInfos)
+                "i2p.router.netdb.floodfills", // Request floodfill routers known to NetDB
+                "i2p.router.netdb.leasesets", // Request LeaseSets known to NetDB
                 "i2p.router.net.total.received.bytes", // Request total received bytes
                 "i2p.router.net.total.sent.bytes", // Request total sent bytes
+                "i2p.router.net.transit.sent.bytes", // Request total transit-sent bytes
             ] {
                 // Value::Null indicates we want the value for this key
                 params.insert((*key).to_string(), Value::Null);

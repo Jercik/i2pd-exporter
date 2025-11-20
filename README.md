@@ -78,12 +78,13 @@ effective is clamped to >= 0.1s
 - `i2p_router_status`
 - `i2p_router_build_info{version}`
 - `i2p_router_uptime_seconds`
-- `i2p_router_net_bw_bytes_per_second{direction,window}` (`1s`,`15s`)
-- `i2p_router_net_status{state}` + `i2p_router_net_status_code`
-- `i2p_router_net_status_v6{state}` + `i2p_router_net_status_v6_code`
-- `i2p_router_tunnels_participating`, `i2p_router_tunnels_success_ratio`
-- `i2p_router_netdb_activepeers`, `i2p_router_netdb_knownpeers`
-- `i2p_router_net_bytes_total{direction}`
+- `i2p_router_net_bw_bytes_per_second{direction,window}` (`inbound`,`outbound`,`transit`; `1s`,`15s`)
+- `i2p_router_net_status{state}` + `i2p_router_net_status_code` (IPv4+IPv6, includes `stan`)
+- `i2p_router_net_error{error}` + `i2p_router_net_error_code` (IPv4+IPv6)
+- `i2p_router_net_testing` / `i2p_router_net_testing_v6`
+- `i2p_router_tunnels_participating`, `_inbound`, `_outbound`, `_queue`, `_tbmqueue`, `_success_ratio`, `_total_success_ratio`
+- `i2p_router_netdb_activepeers`, `_knownpeers`, `_floodfills`, `_leasesets`
+- `i2p_router_net_bytes_total{direction}` (`inbound`,`outbound`,`transit`)
 
 **Exporter:**
 
