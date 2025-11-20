@@ -588,7 +588,7 @@ dependencies = [
 
 [[package]]
 name = "i2pd-exporter"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "assert_cmd",
  "clap",

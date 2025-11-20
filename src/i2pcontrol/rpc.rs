@@ -1,5 +1,6 @@
 // Generic JSON-RPC client for I2PControl
 
+use reqwest::header::CONTENT_TYPE;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use std::time::Duration;
@@ -27,6 +28,9 @@ pub struct RpcError {
 pub enum RpcCallError {
     #[error("transport error: {0}")]
     Transport(#[from] reqwest::Error),
+
+    #[error("error encoding request body for {method}: {error}")]
+    Encode { error: String, method: String },
 
     #[error("HTTP {status} calling {method}: body: {body_snippet}")]
     Http {
@@ -72,7 +76,21 @@ pub async fn rpc_call<T: DeserializeOwned>(
         "method": method,
         "params": params,
     });
-    let resp = client.post(url).json(&req).timeout(timeout).send().await?;
+    // Serialize up front so we always send a fixed-length body (no chunked
+    // transfer) — some I2PControl servers reject chunked requests as malformed
+    // JSON.
+    let body = serde_json::to_vec(&req).map_err(|e| RpcCallError::Encode {
+        error: e.to_string(),
+        method: method.to_string(),
+    })?;
+
+    let resp = client
+        .post(url)
+        .header(CONTENT_TYPE, "application/json")
+        .body(body)
+        .timeout(timeout)
+        .send()
+        .await?;
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();

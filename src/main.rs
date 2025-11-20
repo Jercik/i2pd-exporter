@@ -53,6 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     let api_client = reqwest::Client::builder()
+        .http1_only()
         .danger_accept_invalid_certs(allow_insecure)
         .user_agent(format!("i2pd-exporter/{}", version::VERSION))
         .build()?;
