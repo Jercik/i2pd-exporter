@@ -79,12 +79,10 @@ pub async fn rpc_call<T: DeserializeOwned>(
         let body_snippet = if method == "Authenticate" {
             // Avoid including any upstream response body in error text for auth
             String::from("<omitted>")
+        } else if body.chars().count() > 2048 {
+            truncate_chars(&body, 2048)
         } else {
-            if body.chars().count() > 2048 {
-                truncate_chars(&body, 2048)
-            } else {
-                body.clone()
-            }
+            body.clone()
         };
 
         return Err(RpcCallError::Http {

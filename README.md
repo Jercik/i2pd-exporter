@@ -21,7 +21,7 @@ cargo build --release
 
 # Run (defaults to https://127.0.0.1:7650 for I2PControl)
 RUST_LOG=info ./target/release/i2pd-exporter
-````
+```
 
 Optional cross‑build for Linux (x86_64): `./build-linux-docker.sh` → `./dist/i2pd-exporter`.
 
@@ -45,11 +45,11 @@ Optional cross‑build for Linux (x86_64): `./build-linux-docker.sh` → `./dist
 
 ## HTTP
 
-* **GET** `/:` → `404 Not Found`
-* **GET** `/metrics` → **OpenMetrics** text format
+- **GET** `/:` → `404 Not Found`
+- **GET** `/metrics` → **OpenMetrics** text format
 
-  * `Content-Type: application/openmetrics-text; version=1.0.0; charset=utf-8`
-  * `Cache-Control: no-store`
+  - `Content-Type: application/openmetrics-text; version=1.0.0; charset=utf-8`
+  - `Cache-Control: no-store`
 
 > Note: The server always emits OpenMetrics text (1.0.0). Prometheus and many agents request this via `Accept: application/openmetrics-text;version=1.0.0`. Some browsers may download the response rather than rendering it inline if OpenMetrics is not explicitly accepted.
 
@@ -65,9 +65,9 @@ effective = min(candidate, MAX_SCRAPE_TIMEOUT_SECONDS)
 effective is clamped to >= 0.1s
 ```
 
-* Missing/invalid header → **400 Bad Request**
-* Budget exceeded → **504 Gateway Timeout**
-* Self‑metrics always include the computed budget.
+- Missing/invalid header → **400 Bad Request**
+- Budget exceeded → **504 Gateway Timeout**
+- Self‑metrics always include the computed budget.
 
 ---
 
@@ -75,22 +75,35 @@ effective is clamped to >= 0.1s
 
 **Router:**
 
-* `i2p_router_status`
-* `i2p_router_build_info{version}`
-* `i2p_router_uptime_seconds`
-* `i2p_router_net_bw_bytes_per_second{direction,window}` (`1s`,`15s`)
-* `i2p_router_net_status{state}` + `i2p_router_net_status_code`
-* `i2p_router_net_status_v6{state}` + `i2p_router_net_status_v6_code`
-* `i2p_router_tunnels_participating`, `i2p_router_tunnels_success_ratio`
-* `i2p_router_netdb_activepeers`, `i2p_router_netdb_knownpeers`
-* `i2p_router_net_bytes_total{direction}`
+- `i2p_router_status`
+- `i2p_router_build_info{version}`
+- `i2p_router_uptime_seconds`
+- `i2p_router_net_bw_bytes_per_second{direction,window}` (`1s`,`15s`)
+- `i2p_router_net_status{state}` + `i2p_router_net_status_code`
+- `i2p_router_net_status_v6{state}` + `i2p_router_net_status_v6_code`
+- `i2p_router_tunnels_participating`, `i2p_router_tunnels_success_ratio`
+- `i2p_router_netdb_activepeers`, `i2p_router_netdb_knownpeers`
+- `i2p_router_net_bytes_total{direction}`
 
 **Exporter:**
 
-* `i2pd_exporter_build_info{version}`
-* `i2pd_exporter_scrape_duration_seconds`
-* `i2pd_exporter_effective_scrape_timeout_seconds`
-* `i2pd_exporter_last_scrape_error`
+- `i2pd_exporter_build_info{version}`
+- `i2pd_exporter_scrape_duration_seconds`
+- `i2pd_exporter_effective_scrape_timeout_seconds`
+- `i2pd_exporter_last_scrape_error`
+
+---
+
+## Development
+
+`pre-commit` runs the project checks locally:
+
+- `cargo fmt --all -- --check`
+- `cargo check --all-targets --all-features`
+- `cargo clippy --all-targets --all-features -- -D warnings`
+- `cargo test --all-targets --all-features`
+
+Install the git hook with `pre-commit install`. Run everything manually with `pre-commit run --all-files`.
 
 ---
 
