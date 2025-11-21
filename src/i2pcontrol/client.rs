@@ -9,6 +9,50 @@ use tokio::sync::Mutex;
 use super::rpc::{rpc_call, RpcCallError};
 use super::types::{AuthResult, RouterInfoResult};
 
+const ROUTER_INFO_KEYS_BATCH_1: &[&str] = &[
+    "i2p.router.status",              // Router status as string "1" or "0"
+    "i2p.router.version",             // Request router version string
+    "i2p.router.uptime",              // Request uptime in milliseconds
+    "i2p.router.net.bw.inbound.1s",   // Request inbound bandwidth (1s avg, Bps)
+    "i2p.router.net.bw.inbound.15s",  // Request inbound bandwidth (15s avg, Bps)
+    "i2p.router.net.bw.outbound.1s",  // Request outbound bandwidth (1s avg, Bps)
+    "i2p.router.net.bw.outbound.15s", // Request outbound bandwidth (15s avg, Bps)
+    "i2p.router.net.bw.transit.15s",  // Request transit bandwidth (15s avg, Bps)
+    "i2p.router.net.status", // Request IPv4 network status code (0 OK, 1 Firewalled, 2 Unknown, 3 Proxy, 4 Mesh, 5 Stan)
+    "i2p.router.net.status.v6", // Request IPv6 network status code (optional, same mapping)
+    "i2p.router.net.error",  // Request IPv4 network error code
+    "i2p.router.net.error.v6", // Request IPv6 network error code
+    "i2p.router.net.testing", // Request IPv4 network testing flag
+    "i2p.router.net.testing.v6", // Request IPv6 network testing flag
+];
+
+const ROUTER_INFO_KEYS_BATCH_2: &[&str] = &[
+    "i2p.router.net.tunnels.participating", // Request participating tunnel count (0 or 1 likely)
+    "i2p.router.net.tunnels.inbound",       // Request inbound tunnel count
+    "i2p.router.net.tunnels.outbound",      // Request outbound tunnel count
+    "i2p.router.net.tunnels.successrate",   // Request tunnel success rate (percent integer)
+    "i2p.router.net.tunnels.totalsuccessrate", // Request aggregate tunnel success rate (percent integer)
+    "i2p.router.net.tunnels.queue",            // Request tunnel build queue size
+    "i2p.router.net.tunnels.tbmqueue",         // Request transit build message queue size
+    "i2p.router.netdb.activepeers",            // Request active peer count (floodfills)
+    "i2p.router.netdb.knownpeers",             // Request known peer count (total RouterInfos)
+    "i2p.router.netdb.floodfills",             // Request floodfill routers known to NetDB
+    "i2p.router.netdb.leasesets",              // Request LeaseSets known to NetDB
+    "i2p.router.net.total.received.bytes",     // Request total received bytes
+    "i2p.router.net.total.sent.bytes",         // Request total sent bytes
+    "i2p.router.net.transit.sent.bytes",       // Request total transit-sent bytes
+];
+
+fn build_router_info_params(keys: &[&str], token: &str) -> Value {
+    let mut params = serde_json::Map::new();
+    for key in keys {
+        // Use empty string instead of null; some i2pd builds reject nulls with parse errors.
+        params.insert((*key).to_string(), Value::String(String::new()));
+    }
+    params.insert("Token".to_string(), Value::String(token.to_string()));
+    Value::Object(params)
+}
+
 // Holds shared state for the application, including the API client,
 // configuration, and the authentication token (protected by a Mutex).
 pub struct I2pControlClient {
@@ -86,7 +130,7 @@ impl I2pControlClient {
         let deadline = Instant::now() + overall_timeout;
         let mut did_retry = false; // Flag to prevent infinite retry loops
 
-        loop {
+        'outer: loop {
             // Loop to handle potential re-authentication
             // Get the current token from the mutex
             let current_token = {
@@ -117,105 +161,83 @@ impl I2pControlClient {
                 }
             };
 
-            // Build the parameters for the 'RouterInfo' JSON-RPC request.
-            // We request specific keys related to router status, bandwidth, network, etc.
-            let mut params = serde_json::Map::new();
-            for key in &[
-                "i2p.router.status",                       // Router status as string "1" or "0"
-                "i2p.router.version",                      // Request router version string
-                "i2p.router.uptime",                       // Request uptime in milliseconds
-                "i2p.router.net.bw.inbound.1s", // Request inbound bandwidth (1s avg, Bps)
-                "i2p.router.net.bw.inbound.15s", // Request inbound bandwidth (15s avg, Bps)
-                "i2p.router.net.bw.outbound.1s", // Request outbound bandwidth (1s avg, Bps)
-                "i2p.router.net.bw.outbound.15s", // Request outbound bandwidth (15s avg, Bps)
-                "i2p.router.net.bw.transit.15s", // Request transit bandwidth (15s avg, Bps)
-                "i2p.router.net.status", // Request IPv4 network status code (0 OK, 1 Firewalled, 2 Unknown, 3 Proxy, 4 Mesh, 5 Stan)
-                "i2p.router.net.status.v6", // Request IPv6 network status code (optional, same mapping)
-                "i2p.router.net.error",     // Request IPv4 network error code
-                "i2p.router.net.error.v6",  // Request IPv6 network error code
-                "i2p.router.net.testing",   // Request IPv4 network testing flag
-                "i2p.router.net.testing.v6", // Request IPv6 network testing flag
-                "i2p.router.net.tunnels.participating", // Request participating tunnel count (0 or 1 likely)
-                "i2p.router.net.tunnels.inbound",       // Request inbound tunnel count
-                "i2p.router.net.tunnels.outbound",      // Request outbound tunnel count
-                "i2p.router.net.tunnels.successrate", // Request tunnel success rate (percent integer)
-                "i2p.router.net.tunnels.totalsuccessrate", // Request aggregate tunnel success rate (percent integer)
-                "i2p.router.net.tunnels.queue",            // Request tunnel build queue size
-                "i2p.router.net.tunnels.tbmqueue", // Request transit build message queue size
-                "i2p.router.netdb.activepeers",    // Request active peer count (floodfills)
-                "i2p.router.netdb.knownpeers",     // Request known peer count (total RouterInfos)
-                "i2p.router.netdb.floodfills",     // Request floodfill routers known to NetDB
-                "i2p.router.netdb.leasesets",      // Request LeaseSets known to NetDB
-                "i2p.router.net.total.received.bytes", // Request total received bytes
-                "i2p.router.net.total.sent.bytes", // Request total sent bytes
-                "i2p.router.net.transit.sent.bytes", // Request total transit-sent bytes
-            ] {
-                // Use empty string instead of null; some i2pd builds reject nulls with parse errors.
-                params.insert((*key).to_string(), Value::String(String::new()));
-            }
-            // Include the authentication token in the parameters
-            params.insert("Token".to_string(), Value::String(token.clone()));
+            let mut combined = RouterInfoResult::default();
 
-            // Perform JSON-RPC call, handle token expiry with one retry
-            let now = Instant::now();
-            let rem = if now >= deadline {
-                Duration::from_millis(0)
-            } else {
-                deadline.saturating_duration_since(now)
-            };
-            if rem.is_zero() {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::TimedOut,
-                    "deadline exceeded before RouterInfo",
-                )
-                .into());
-            }
-            let data = match rpc_call::<RouterInfoResult>(
-                &self.api_client,
-                &self.api_url,
-                "RouterInfo",
-                Value::Object(params),
-                rem,
-            )
-            .await
+            for (batch_idx, keys) in [ROUTER_INFO_KEYS_BATCH_1, ROUTER_INFO_KEYS_BATCH_2]
+                .iter()
+                .enumerate()
             {
-                Ok(data) => data,
-                Err(err) => {
-                    let is_token_err = matches!(
-                        err,
-                        RpcCallError::Rpc {
-                            code: -32004..=-32002,
-                            ..
-                        }
-                    );
-                    if is_token_err && !did_retry {
-                        warn!("Token error, re-authenticating...: {}", err);
-                        {
-                            let mut guard = self.token.lock().await;
-                            *guard = None;
-                        }
-                        let now = Instant::now();
-                        let rem = if now >= deadline {
-                            Duration::from_millis(0)
-                        } else {
-                            deadline.saturating_duration_since(now)
-                        };
-                        if rem.is_zero() {
-                            return Err(std::io::Error::new(
-                                std::io::ErrorKind::TimedOut,
-                                "deadline exceeded before re-authentication",
-                            )
-                            .into());
-                        }
-                        let _ = self.authenticate(rem).await?;
-                        did_retry = true;
-                        continue;
-                    }
-                    return Err(Box::new(err));
+                let now = Instant::now();
+                let rem = if now >= deadline {
+                    Duration::from_millis(0)
+                } else {
+                    deadline.saturating_duration_since(now)
+                };
+                if rem.is_zero() {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        format!(
+                            "deadline exceeded before RouterInfo batch {}",
+                            batch_idx + 1
+                        ),
+                    )
+                    .into());
                 }
-            };
+                let params = build_router_info_params(keys, &token);
 
-            return Ok(data);
+                let data = match rpc_call::<RouterInfoResult>(
+                    &self.api_client,
+                    &self.api_url,
+                    "RouterInfo",
+                    params,
+                    rem,
+                )
+                .await
+                {
+                    Ok(data) => data,
+                    Err(err) => {
+                        let is_token_err = matches!(
+                            err,
+                            RpcCallError::Rpc {
+                                code: -32004..=-32002,
+                                ..
+                            }
+                        );
+                        if is_token_err && !did_retry {
+                            warn!(
+                                "Token error during RouterInfo batch {}, re-authenticating...: {}",
+                                batch_idx + 1,
+                                err
+                            );
+                            {
+                                let mut guard = self.token.lock().await;
+                                *guard = None;
+                            }
+                            let now = Instant::now();
+                            let rem = if now >= deadline {
+                                Duration::from_millis(0)
+                            } else {
+                                deadline.saturating_duration_since(now)
+                            };
+                            if rem.is_zero() {
+                                return Err(std::io::Error::new(
+                                    std::io::ErrorKind::TimedOut,
+                                    "deadline exceeded before re-authentication",
+                                )
+                                .into());
+                            }
+                            let _ = self.authenticate(rem).await?;
+                            did_retry = true;
+                            continue 'outer;
+                        }
+                        return Err(Box::new(err));
+                    }
+                };
+
+                combined.merge_from(data);
+            }
+
+            return Ok(combined);
         }
     }
 }
