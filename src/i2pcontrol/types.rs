@@ -76,4 +76,92 @@ pub struct RouterInfoResult {
     pub net_transit_sent_bytes: Option<f64>,
 }
 
-// (Old block removed)
+impl RouterInfoResult {
+    // Merge data from another RouterInfoResult, preferring values from `other` when present.
+    pub fn merge_from(&mut self, other: RouterInfoResult) {
+        if let Some(v) = other.router_status {
+            self.router_status = Some(v);
+        }
+        if let Some(v) = other.router_version {
+            self.router_version = Some(v);
+        }
+        if let Some(v) = other.router_uptime {
+            self.router_uptime = Some(v);
+        }
+        if let Some(v) = other.bw_inbound_1s {
+            self.bw_inbound_1s = Some(v);
+        }
+        if let Some(v) = other.bw_inbound_15s {
+            self.bw_inbound_15s = Some(v);
+        }
+        if let Some(v) = other.bw_outbound_1s {
+            self.bw_outbound_1s = Some(v);
+        }
+        if let Some(v) = other.bw_outbound_15s {
+            self.bw_outbound_15s = Some(v);
+        }
+        if let Some(v) = other.bw_transit_15s {
+            self.bw_transit_15s = Some(v);
+        }
+        if let Some(v) = other.net_status {
+            self.net_status = Some(v);
+        }
+        if let Some(v) = other.net_status_v6 {
+            self.net_status_v6 = Some(v);
+        }
+        if let Some(v) = other.net_error {
+            self.net_error = Some(v);
+        }
+        if let Some(v) = other.net_error_v6 {
+            self.net_error_v6 = Some(v);
+        }
+        if let Some(v) = other.net_testing {
+            self.net_testing = Some(v);
+        }
+        if let Some(v) = other.net_testing_v6 {
+            self.net_testing_v6 = Some(v);
+        }
+        if let Some(v) = other.tunnels_participating {
+            self.tunnels_participating = Some(v);
+        }
+        if let Some(v) = other.tunnels_inbound {
+            self.tunnels_inbound = Some(v);
+        }
+        if let Some(v) = other.tunnels_outbound {
+            self.tunnels_outbound = Some(v);
+        }
+        if let Some(v) = other.tunnels_successrate {
+            self.tunnels_successrate = Some(v);
+        }
+        if let Some(v) = other.tunnels_total_successrate {
+            self.tunnels_total_successrate = Some(v);
+        }
+        if let Some(v) = other.tunnels_queue {
+            self.tunnels_queue = Some(v);
+        }
+        if let Some(v) = other.tunnels_tbmqueue {
+            self.tunnels_tbmqueue = Some(v);
+        }
+        if let Some(v) = other.netdb_activepeers {
+            self.netdb_activepeers = Some(v);
+        }
+        if let Some(v) = other.netdb_knownpeers {
+            self.netdb_knownpeers = Some(v);
+        }
+        if let Some(v) = other.netdb_floodfills {
+            self.netdb_floodfills = Some(v);
+        }
+        if let Some(v) = other.netdb_leasesets {
+            self.netdb_leasesets = Some(v);
+        }
+        if let Some(v) = other.net_total_received_bytes {
+            self.net_total_received_bytes = Some(v);
+        }
+        if let Some(v) = other.net_total_sent_bytes {
+            self.net_total_sent_bytes = Some(v);
+        }
+        if let Some(v) = other.net_transit_sent_bytes {
+            self.net_transit_sent_bytes = Some(v);
+        }
+    }
+}
