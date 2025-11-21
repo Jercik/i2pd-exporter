@@ -129,6 +129,8 @@ impl I2pControlClient {
     ) -> Result<RouterInfoResult, Box<dyn std::error::Error + Send + Sync>> {
         let deadline = Instant::now() + overall_timeout;
         let mut did_retry = false; // Flag to prevent infinite retry loops
+        let mut combined = RouterInfoResult::default();
+        let mut next_batch_idx = 0usize; // Track progress so partial successes are preserved across retries
 
         'outer: loop {
             // Loop to handle potential re-authentication
@@ -161,11 +163,10 @@ impl I2pControlClient {
                 }
             };
 
-            let mut combined = RouterInfoResult::default();
-
             for (batch_idx, keys) in [ROUTER_INFO_KEYS_BATCH_1, ROUTER_INFO_KEYS_BATCH_2]
                 .iter()
                 .enumerate()
+                .skip(next_batch_idx)
             {
                 let now = Instant::now();
                 let rem = if now >= deadline {
@@ -228,6 +229,7 @@ impl I2pControlClient {
                             }
                             let _ = self.authenticate(rem).await?;
                             did_retry = true;
+                            // Preserve already merged batches and retry from the failed batch.
                             continue 'outer;
                         }
                         return Err(Box::new(err));
@@ -235,6 +237,7 @@ impl I2pControlClient {
                 };
 
                 combined.merge_from(data);
+                next_batch_idx = batch_idx + 1;
             }
 
             return Ok(combined);
