@@ -53,7 +53,14 @@ jobs:
           node-version: "22"
 
       - name: Install ${{ matrix.agent }}
-        run: npx -y axinstall ${{ matrix.agent }} --with npm
+        # Harden npm: force registry, enforce TLS, ignore user config, clear proxy settings
+        run: >-
+          NPM_CONFIG_REGISTRY=https://registry.npmjs.org
+          npm_config_userconfig=/dev/null
+          npm_config_strict_ssl=true
+          npm_config_proxy=
+          npm_config_https_proxy=
+          npx -y axinstall@latest ${{ matrix.agent }} --with npm
 
       - name: Run ${{ matrix.display_name }} Review
         env:
@@ -317,7 +324,13 @@ jobs:
           7. If output contains `"id":`, stop—review posted successfully
           PROMPT_EOF
 
-          npx -y axrun --agent ${{ matrix.agent }} --model ${{ matrix.model }} \
+          # Harden npm: force registry, enforce TLS, ignore user config, clear proxy settings
+          NPM_CONFIG_REGISTRY=https://registry.npmjs.org \
+          npm_config_userconfig=/dev/null \
+          npm_config_strict_ssl=true \
+          npm_config_proxy= \
+          npm_config_https_proxy= \
+          npx -y axrun@latest --agent ${{ matrix.agent }} --model ${{ matrix.model }} \
             --vault-credential ${{ matrix.vault_credential }} \
             --allow '${{ env.AXRUN_ALLOW }}' \
             --prompt "$(cat /tmp/prompt.md)"
