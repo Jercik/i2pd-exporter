@@ -1,4 +1,4 @@
-name: PR Review with axrun
+name: PR Code Review
 
 on:
   # Use pull_request_target so the workflow runs from the base branch (trusted code).
@@ -8,7 +8,8 @@ on:
     types: [opened, synchronize, reopened]
 
 env:
-  AXRUN_ALLOW: "read,glob,grep,bash:gh api*,bash:gh pr comment*,bash:gh pr diff*,bash:gh pr view*,bash:npx -y askpplx*,bash:ls*,bash:cat*,bash:grep*,bash:tree*,bash:pwd*,bash:head*,bash:tail*,bash:jq*,bash:wc*,bash:sort*,bash:uniq*,bash:cut*,bash:git diff*,bash:git log*,bash:git show*,bash:git status*,bash:git rev-parse*"
+  # Allow all CLI commands - safe in GitHub Actions sandboxed environment
+  AXRUN_ALLOW: "read,write,glob,grep,bash:*"
 
 jobs:
   review:
@@ -30,10 +31,6 @@ jobs:
           - agent: gemini
             display_name: Gemini
             model: gemini-3-pro-preview
-            vault_credential: ci-oauth-credentials
-          - agent: codex
-            display_name: Codex
-            model: gpt-5.2-codex
             vault_credential: ci-oauth-credentials
           - agent: copilot
             display_name: Copilot
@@ -82,6 +79,8 @@ jobs:
           1. **Inline comments** on specific lines (via GitHub Reviews API)
           2. **A summary comment** with the overall assessment
 
+          **Understand the codebase first, then review the diff.** The diff shows _what_ changed, but you need codebase context to understand _why_ it matters. Explore related files, check how changed code is used elsewhere, and verify the changes fit the existing architecture.
+
           Focus on impactful issues: security vulnerabilities, logic errors, and architectural problems.
 
           ## Context
@@ -112,6 +111,7 @@ jobs:
           3. **Error Handling:** Missing try-catch, unchecked response.ok, unhandled promises
           4. **Architecture:** Separation of concerns, proper abstractions
           5. **Documentation:** Outdated README, incorrect CLI help, stale comments
+          6. **Integration:** How changes affect callers, importers, and downstream code
 
           ## Severity Levels
 
@@ -190,6 +190,18 @@ jobs:
 
           If uncertain, state it explicitly and lower the severity.
 
+          ### Explore Beyond the Diff
+
+          The diff alone doesn't tell the full story. Before forming opinions about the changes:
+
+          1. **Read entire modified files** - understand the full context, not just changed lines
+          2. **Find all callers** - grep for function/class names to see how they're used
+          3. **Check type definitions** - changes to types may break callers not in the diff
+          4. **Review related tests** - understand expected behavior and edge cases
+          5. **Look for similar patterns** - see how the codebase handles similar problems elsewhere
+
+          Issues often arise from how changed code interacts with unchanged code. A function that looks correct in isolation may break its callers or violate assumptions made elsewhere.
+
           ### Check Documentation Consistency
 
           Always check documentation, even for files not changed in the PR:
@@ -200,6 +212,17 @@ jobs:
           4. Check that code comments match implementation
 
           Common issues: README shows old API usage, CLI help mentions removed flags, example code no longer works, environment variable names changed but docs not updated.
+
+          ## Bash Command Rules
+
+          **Execute commands exactly as shown.** Do not add any prefixes or wrappers:
+
+          - ❌ Do NOT prefix with `. .envrc &&` or `source .envrc &&`
+          - ❌ Do NOT prefix with `cd /path &&`
+          - ❌ Do NOT add shell redirects like `>` at the start
+          - ✅ Run commands exactly as documented (e.g., `gh pr view ...`, `cat ...`)
+
+          Commands run in the repository root with the correct environment already configured.
 
           ## How to Post Reviews
 
@@ -220,7 +243,7 @@ jobs:
           {
             "commit_id": "COMMIT_SHA_HERE",
             "event": "COMMENT",
-            "body": "Your review summary here with **markdown** and\nmultiple lines",
+            "body": "**Summary:** Found 1 critical, 1 high, and 1 info-level observation.\n\n---\n\n_Review by Claude (opus)_",
             "comments": [
               {"path": "src/utils.ts", "line": 36, "side": "RIGHT", "body": "🔴 **Critical:** Issue description"},
               {"path": "src/utils.ts", "line": 8, "side": "RIGHT", "body": "🟠 **High:** Another issue"},
@@ -233,7 +256,8 @@ jobs:
           **JSON rules:**
 
           - Use `\n` for newlines inside strings (not actual newlines)
-          - Always include the `comments` array—use `[]` only if you found zero line-specific issues
+          - ALL issues go in the `comments` array—use `[]` only if you found zero issues
+          - The `body` should only contain issue counts and the signature line
 
           ### Step 3: Post the review
 
@@ -245,15 +269,15 @@ jobs:
 
           ### Where to Place Issues
 
-          | Issue type                        | In PR diff? | Placement                        |
-          | --------------------------------- | ----------- | -------------------------------- |
-          | Bug at specific line              | Yes         | `comments` array with `line`     |
-          | Issue spanning a few lines        | Yes         | `comments` array, pick main line |
-          | Issue about entire file           | —           | Summary body only                |
-          | Issue about unchanged file        | No          | Summary body only                |
-          | General architectural observation | N/A         | Summary body only                |
+          | Issue type                        | In PR diff? | Placement                                                           |
+          | --------------------------------- | ----------- | ------------------------------------------------------------------- |
+          | Bug at specific line              | Yes         | `comments` array with `line`                                        |
+          | Issue spanning a few lines        | Yes         | `comments` array, pick main line                                    |
+          | Issue about entire file           | —           | `comments` array, use first changed line in that file's diff        |
+          | Issue about unchanged file        | No          | `comments` array, attach to first changed line of any modified file |
+          | General architectural observation | N/A         | `comments` array, attach to first changed line of any modified file |
 
-          **Use inline comments only for line-specific issues.** File-level observations go in the summary body—the GitHub API requires a `line` number for every entry in the `comments` array.
+          **All issues go in inline comments.** The GitHub API requires a `line` number for every entry in the `comments` array, and that line must appear in a diff hunk. If an issue doesn't have a specific line, use the first changed line of the most relevant modified file (or any modified file if none is more relevant).
 
           ### Comment Field Reference
 
@@ -266,62 +290,64 @@ jobs:
 
           ### Summary Body Format
 
+          Keep the summary body minimal—all detailed feedback belongs in inline comments.
+
           ```markdown
-          <details>
-          <summary>PR Review Details</summary>
-
-          [Architectural observations - do not repeat inline comment content]
-
-          </details>
-
-          **Summary:** [1-2 sentences with issue counts, e.g., "Found 1 high and 2 medium issues. The mutex implementation is solid but has a race condition."]
+          **Summary:** [1-2 sentences with issue counts only, e.g., "Found 1 high and 2 medium issues."]
 
           ---
 
-          _Review by ${{ matrix.display_name }} (${{ matrix.model }})_
+          _Code review by ${{ matrix.display_name }} (${{ matrix.model }})_
           ```
 
           **Summary body should contain:**
 
-          - Architectural observations (patterns, design decisions)
-          - What looks good about the implementation
-          - Brief issue counts ("Found 2 high, 1 medium issue")
+          - Brief issue counts ("Found 2 high, 1 medium issue") or "No issues found"
+          - The signature line
 
-          **Summary body should not contain:**
+          **Summary body should NOT contain:**
 
-          - Full descriptions of line-specific issues (those go in inline comments)
+          - Detailed descriptions of any issues (all details go in inline comments)
+          - Architectural observations (attach these to a relevant changed file instead)
+          - Lists of what was reviewed or what looks good
+          - `<details>` disclosure blocks
 
           ### Common Mistakes
 
-          1. **Putting line-specific issues only in the summary.** If you identify an issue at line 75, add it to the `comments` array—don't just mention it in the body.
+          1. **Putting issues in the summary body.** ALL issues go in the `comments` array as inline comments. The summary body should only contain issue counts and the signature.
 
-          2. **Duplicating content.** The summary should reference issues, not repeat them:
+          2. **Adding verbose summaries.** Keep it minimal:
 
              ```markdown
-             # Bad - duplicates inline comment
+             # Bad - too verbose
 
-             body: "### Race Condition\nThere is a race condition at line 103..."
-             comments: [{"path": "src/file.ts", "line": 103, "side": "RIGHT", "body": "🟡 Race condition..."}]
+             body: "### Race Condition\nThere is a race condition at line 103...\n\n<details>..."
 
-             # Good - summary references, details in inline comments
+             # Good - minimal summary
 
-             body: "See inline comments for 1 medium issue regarding race condition."
-             comments: [{"path": "src/file.ts", "line": 103, "side": "RIGHT", "body": "🟡 **Medium:** Race condition..."}]
+             body: "**Summary:** Found 1 medium issue.\n\n---\n\n_Review by Claude (opus)_"
              ```
 
-          3. **Retrying the POST.** If `gh api` returns JSON, it worked. Retrying creates duplicates.
+          3. **Not attaching file-level issues to a line.** If you have an observation about the overall approach or architecture, attach it to the first changed line of a relevant modified file—don't put it in the summary body.
 
-          4. **Forgetting the signature.** Always end with `_Review by ${{ matrix.display_name }} (${{ matrix.model }})_`.
+          4. **Retrying the POST.** If `gh api` returns JSON, it worked. Retrying creates duplicates.
+
+          5. **Forgetting the signature.** Always end with `_Code review by ${{ matrix.display_name }} (${{ matrix.model }})_`.
 
           ## Execution Steps
 
-          1. Run `gh pr view` to get the HEAD commit SHA
-          2. Run `gh pr diff` to analyze the changes
-          3. Identify issues and their exact line numbers
-          4. For each line-specific issue, add an entry to `comments`
-          5. Write complete review JSON to `/tmp/review.json`
-          6. Run `gh api ... --input /tmp/review.json` once
-          7. If output contains `"id":`, stop—review posted successfully
+          1. Run `gh pr view` to get the HEAD commit SHA and PR description
+          2. Run `gh pr diff` to see what files and lines changed
+          3. **Explore the codebase for context:**
+             - Read the full content of modified files (not just the diff hunks)
+             - Find callers/importers of changed functions using grep
+             - Check related files (tests, types, configs) that might be affected
+             - Read README and relevant docs to understand intended behavior
+          4. Analyze changes with full context—identify issues and their line numbers
+          5. Add ALL issues to the `comments` array (use first changed line of a modified file for file-level observations)
+          6. Write complete review JSON to `/tmp/review.json`
+          7. Run `gh api ... --input /tmp/review.json` once
+          8. If output contains `"id":`, stop—review posted successfully
           PROMPT_EOF
 
           # Harden npm: force registry, enforce TLS, ignore user config, clear proxy settings
@@ -330,7 +356,9 @@ jobs:
           npm_config_strict_ssl=true \
           npm_config_proxy= \
           npm_config_https_proxy= \
-          npx -y axrun@latest --agent ${{ matrix.agent }} --model ${{ matrix.model }} \
+          npx -y axrun@latest --agent ${{ matrix.agent }} \
+            ${{ matrix.provider && format('--provider "{0}"', matrix.provider) || '' }} \
+            --model ${{ matrix.model }} \
             --vault-credential ${{ matrix.vault_credential }} \
             --allow '${{ env.AXRUN_ALLOW }}' \
             --prompt "$(cat /tmp/prompt.md)"

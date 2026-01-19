@@ -1,0 +1,175 @@
+name: PR Approach Review
+
+on:
+  pull_request_target:
+    types: [opened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to review"
+        required: true
+        type: number
+
+env:
+  AXRUN_ALLOW: "read,write,glob,grep,bash:*"
+
+jobs:
+  review:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - agent: claude
+            display_name: Claude
+            model: opus
+            vault_credential: ci-oauth-token
+          - agent: gemini
+            display_name: Gemini
+            model: gemini-3-pro-preview
+            vault_credential: ci-oauth-credentials
+          - agent: copilot
+            display_name: Copilot
+            model: gpt-5.2
+            vault_credential: ci-oauth-token
+    name: approach (${{ matrix.agent }}, ${{ matrix.model }})
+    steps:
+      - name: Resolve PR info
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            PR_NUMBER="${{ inputs.pr_number }}"
+          else
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+          fi
+          echo "number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          HEAD_SHA=$(gh pr view $PR_NUMBER --repo ${{ github.repository }} --json headRefOid --jq '.headRefOid')
+          echo "head_sha=$HEAD_SHA" >> $GITHUB_OUTPUT
+
+      - name: Checkout PR head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.pr.outputs.head_sha }}
+          fetch-depth: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Install ${{ matrix.agent }}
+        run: >-
+          NPM_CONFIG_REGISTRY=https://registry.npmjs.org
+          npm_config_userconfig=/dev/null
+          npm_config_strict_ssl=true
+          npm_config_proxy=
+          npm_config_https_proxy=
+          npx -y axinstall@latest ${{ matrix.agent }} --with npm
+
+      - name: Run ${{ matrix.display_name }} Approach Review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AXVAULT: ${{ secrets.AXVAULT }}
+          PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          cat > /tmp/prompt.md << 'PROMPT_EOF'
+          # Approach Review
+
+          You review PRs at a high level. Your only job: **Is there a better way to solve this problem?**
+
+          ## What You Do
+
+          1. Understand what problem the PR solves (read PR description, explore the codebase)
+          2. Consider if there's a fundamentally better approach
+          3. If yes, explain the alternative. If no, say "approach looks good"
+
+          ## What You Don't Do
+
+          - Find bugs (there's another review for that)
+          - Suggest small improvements or optimizations
+          - Comment on code style, naming, or formatting
+          - Nitpick implementation details
+
+          ## When to Suggest an Alternative
+
+          Only suggest a different approach when:
+          - A standard library or existing codebase utility already does this
+          - The solution is significantly more complex than necessary
+          - There's a well-known pattern that fits better
+          - The approach will cause obvious scaling or maintenance issues
+
+          Don't suggest alternatives when:
+          - It's just a different way to do the same thing with similar trade-offs
+
+          ## Context
+
+          - **Repository**: ${{ github.repository }}
+          - **PR Number**: __PR_NUMBER__
+
+          ## How to Post Your Review
+
+          1. Get commit SHA:
+             ```bash
+             gh pr view __PR_NUMBER__ --json headRefOid --jq '.headRefOid'
+             ```
+
+          2. Write review to `/tmp/review.json`:
+             ```bash
+             cat > /tmp/review.json << 'REVIEWJSON'
+             {
+               "commit_id": "COMMIT_SHA_HERE",
+               "event": "COMMENT",
+               "body": "**Approach Review:** [Your assessment]\n\n---\n\n_Approach review by ${{ matrix.display_name }} (${{ matrix.model }})_",
+               "comments": []
+             }
+             REVIEWJSON
+             ```
+
+             If suggesting an alternative approach, add it to the `comments` array attached to the most relevant changed line:
+             ```json
+             "comments": [
+               {"path": "src/file.ts", "line": 10, "side": "RIGHT", "body": "💡 **Alternative approach:** [Your suggestion]"}
+             ]
+             ```
+
+          3. Post once:
+             ```bash
+             gh api repos/${{ github.repository }}/pulls/__PR_NUMBER__/reviews --method POST --input /tmp/review.json
+             ```
+
+          ## Examples
+
+          **Good feedback:**
+          - "This reimplements `lodash.debounce` - consider using the existing dependency"
+          - "This polling approach could be replaced with the existing WebSocket connection"
+          - "The codebase already has a `BaseValidator` class that handles this pattern"
+          - "Consider using TypeScript instead of JavaScript - it would catch the type errors this PR is trying to fix at compile time"
+
+          **Not helpful (don't say these):**
+          - "You could use a Map instead of an object here" (minor implementation detail)
+          - "Consider extracting this into a separate function" (refactoring preference)
+          - "This variable name could be clearer" (detail, not approach)
+          PROMPT_EOF
+
+          # Substitute PR number placeholder
+          sed -i "s/__PR_NUMBER__/$PR_NUMBER/g" /tmp/prompt.md
+
+          NPM_CONFIG_REGISTRY=https://registry.npmjs.org \
+          npm_config_userconfig=/dev/null \
+          npm_config_strict_ssl=true \
+          npm_config_proxy= \
+          npm_config_https_proxy= \
+          npx -y axrun@latest --agent ${{ matrix.agent }} \
+            ${{ matrix.provider && format('--provider "{0}"', matrix.provider) || '' }} \
+            --model ${{ matrix.model }} \
+            --vault-credential ${{ matrix.vault_credential }} \
+            --allow '${{ env.AXRUN_ALLOW }}' \
+            --prompt "$(cat /tmp/prompt.md)"
