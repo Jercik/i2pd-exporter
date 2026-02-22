@@ -28,16 +28,21 @@ jobs:
           - agent: claude
             display_name: Claude
             model: opus
-            vault_credential: ci-oauth-token
+            vault_credential: ci-claude-oauth-token
           - agent: gemini
             display_name: Gemini
-            model: gemini-3-pro-preview
-            vault_credential: ci-oauth-credentials
+            model: gemini-3.1-pro-preview
+            vault_credential: ci-gemini-oauth-credentials
           - agent: copilot
             display_name: Copilot
             model: gpt-5.2
-            vault_credential: ci-oauth-token
+            vault_credential: ci-copilot-oauth-token
+          - agent: codex
+            display_name: Codex CLI
+            model: gpt-5.3-codex
+            vault_credential: ci-codex-oauth-credentials
     name: approach (${{ matrix.agent }}, ${{ matrix.model }})
+    timeout-minutes: 12
     steps:
       - name: Resolve PR info
         id: pr

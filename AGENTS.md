@@ -1,11 +1,16 @@
+# Rule: Mandatory Startup Reads
+
+Before taking any action—answering questions, editing files, or running commands—read these files in order:
+
+- **@README.md** — Project overview and context
+
+If a file does not exist, skip it silently and continue.
+
 # Rule: `askpplx` CLI Usage
 
 **At session start:** Run `npx -y askpplx --help` to confirm the tool works and learn available options.
 
-Use `askpplx` to query Perplexity search engine for real-time web search. Use it to verify facts before acting. A lookup is far cheaper than debugging hallucinated code or explaining why an approach failed. Verification is fast and cheap—prefer looking up information over making assumptions. When in doubt, verify.
-
-
----
+Use `askpplx` to query Perplexity for real-time web search. Use it to verify external facts before acting—documentation, API behavior, library versions, best practices. A lookup is far cheaper than debugging hallucinated code or explaining why an approach failed. Verification is fast and cheap—prefer looking up information over making assumptions. When in doubt, verify.
 
 # Rule: Avoid Leaky Abstractions
 
@@ -53,9 +58,6 @@ class PostgresReservationRepository implements ReservationRepository {
 - Inject infrastructure dependencies through constructors, not method parameters
 - Normalize error handling so callers don't catch implementation-specific exceptions
 
-
----
-
 # Rule: Early Returns
 
 Handle edge cases and invalid states at the top of a function with guard clauses that return early. This flattens nested conditionals and keeps the happy path obvious.
@@ -70,9 +72,6 @@ function getDiscount(user: User | null) {
 ```
 
 Invert conditions and exit immediately—null checks, permission checks, validation, empty collections. Main logic stays at the top level with minimal indentation.
-
-
----
 
 # Rule: File Naming Matches Contents
 
@@ -89,9 +88,6 @@ Name files for what the module actually does. Use kebab-case and prefer verb-nou
 - Use role suffixes (`-service`, `-repository`) only when they clarify architecture.
 
 Example: A file named `usage.core.ts` containing both fetching and aggregation logic should be split into `fetch-service-usage.ts` and `aggregate-usage.ts`.
-
-
----
 
 # Rule: Functional Core, Imperative Shell
 
@@ -135,18 +131,11 @@ email.bulkSend(
 
 Core functions can now be tested with sample data and reused without modification.
 
-
----
-
 # Rule: Inline Obvious Code
 
 Keep simple, self-explanatory code inline rather than extracting it into functions. Every abstraction carries cognitive cost—readers must jump to another location, parse a signature, and track context. For obvious logic, this overhead exceeds any benefit.
 
 Extracting code into a function is not inherently virtuous. A function should exist because it encapsulates meaningful complexity, not because code appears twice.
-
-## When to inline
-
-Inline when the logic is immediately understandable, appears in only one or two places, or when extracting would require reading the function definition to understand what happens.
 
 ```ts
 // GOOD: Inline obvious logic
@@ -161,42 +150,11 @@ return formatRemovalResult(removedFrom);
 
 ## When to extract
 
-Extract when the logic is complex enough that a name clarifies intent, you need consistent behavior across many call sites, the function encapsulates a coherent standalone concept, testing it in isolation provides value, or local variables exceed what you can track mentally.
+Extract when a name clarifies complex intent, you need consistent behavior across many call sites, the function encapsulates a coherent standalone concept, or testing it in isolation provides value. Don't extract for single callers, because "we might need this elsewhere," or when the name describes implementation rather than purpose.
 
 ## The wrong abstraction
 
-Abstractions decay when requirements diverge: programmer A extracts duplication into a shared function, programmer B adds a parameter for different behavior, and this repeats until the "abstraction" is a mess of conditionals. The result is harder to understand than the original duplication.
-
-When an abstraction proves wrong, re-introduce duplication and let the code show you what's actually shared.
-
-```ts
-// Started as shared abstraction, became a mess
-function NavButton({ label, url, icon, highlight, testId, onClick, disabled, badge }) {
-  // 50 lines of conditional logic for "shared" button
-}
-
-// Better: Accept that these aren't the same thing
-<HomeButton />
-<AboutButton />
-<BuyButton highlight testId="buy-cta" />
-```
-
-## Warning signs
-
-- **Conditional parameters**: Flags that determine which code path executes
-- **Single caller**: A "reusable" function called from exactly one place
-- **Name describes implementation**: `formatRemovalResult` vs. a name describing _why_
-- **Reading the function is required**: The call site doesn't make sense without the definition
-- **Future-proofing**: "We might need this elsewhere" without concrete evidence
-
-## The cognitive test
-
-Before extracting, ask: "Will readers understand this faster by reading the inline code or by jumping to a function definition?" If inline is faster, don't extract.
-
-> "Duplication is far cheaper than the wrong abstraction." — Sandi Metz
-
-
----
+Abstractions decay when requirements diverge: programmer A extracts duplication into a shared function, programmer B adds a parameter for different behavior, and this repeats until the "abstraction" is a mess of conditionals. When an abstraction proves wrong, re-introduce duplication and let the code show you what's actually shared. Duplication is far cheaper than the wrong abstraction.
 
 # Rule: No Logic in Tests
 
@@ -215,9 +173,6 @@ expect(getPhotosUrl()).toBe("http://example.com/photos"); // fails, reveals the 
 Unlike production code that handles varied inputs, tests verify specific cases. State expectations directly rather than computing them. When a test fails, the expected value should be immediately readable without mental evaluation.
 
 Test utilities are acceptable for setup and data preparation—fixtures, builders, factories, mock configuration—but not for computing expected values. Keep assertion logic in the test body with literal expectations.
-
-
----
 
 # Rule: Normalize User Input
 
@@ -246,9 +201,6 @@ When accepting user input:
 **Never normalize passwords.** Users should be able to use any characters exactly as entered—normalizing passwords reduces entropy and can break legitimate credentials. The only acceptable transformation is Unicode normalization (NFC/NFKC) for cross-platform compatibility before hashing.
 
 The validation error should describe what's actually wrong with the data, not complain about formatting the computer could have handled.
-
-
----
 
 # Rule: Parse, Don't Validate
 
@@ -291,14 +243,6 @@ const PositiveInt = z
 type PositiveInt = z.infer<typeof PositiveInt>;
 ```
 
-
----
-
-Read the project's readme: @README.md
-
-
----
-
 # Rule: Test Functional Core
 
 Focus testing efforts on the functional core—pure functions with no side effects that operate only on provided data. These tests are fast, deterministic, and provide high value per line of test code. Do not write tests for the imperative shell (I/O, database calls, external services) unless the user explicitly requests them.
@@ -322,8 +266,14 @@ Imperative shell tests require mocks, stubs, or integration infrastructure, maki
 
 If testing imperative shell code is explicitly requested, prefer integration tests over unit tests with mocks—they catch real issues and are less likely to break when implementation details change.
 
+# Rule: Use `repoq` for Repository Queries
 
----
+Run `npx -y repoq --help` to learn available options.
+
+Use `repoq` instead of piping `git`/`gh` commands through `awk`/`jq`/`grep`.
+Each command handles edge cases (detached HEAD, unborn branches, missing auth)
+and returns validated JSON. Prefer `repoq` for reading state; use raw `git`/`gh`
+for mutations (commit, push, merge).
 
 # Rule: Cargo Dependency Updates
 
