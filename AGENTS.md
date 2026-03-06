@@ -129,7 +129,11 @@ email.bulkSend(
 );
 ```
 
-Core functions can now be tested with sample data and reused without modification.
+## Testing strategy
+
+Focus testing on the functional core. These tests are fast, deterministic, need no mocks, and provide high value per line of test code. Do not write tests for the imperative shell unless the user explicitly requests them—when the core is well-tested, the shell becomes thin orchestration where bugs are easy to spot through review.
+
+If shell tests are explicitly requested, prefer integration tests over unit tests with mocks.
 
 # Rule: Inline Obvious Code
 
@@ -242,29 +246,6 @@ const PositiveInt = z
   .refine((n) => n > 0, "must be positive");
 type PositiveInt = z.infer<typeof PositiveInt>;
 ```
-
-# Rule: Test Functional Core
-
-Focus testing efforts on the functional core—pure functions with no side effects that operate only on provided data. These tests are fast, deterministic, and provide high value per line of test code. Do not write tests for the imperative shell (I/O, database calls, external services) unless the user explicitly requests them.
-
-Imperative shell tests require mocks, stubs, or integration infrastructure, making them slower to write, brittle to maintain, and harder to debug. The return on investment diminishes rapidly compared to functional core tests. When the functional core is well-tested, the imperative shell becomes thin orchestration code where bugs are easier to spot through review or manual testing.
-
-## What to test by default
-
-- Pure transformation functions (filtering, mapping, calculations)
-- Validation and parsing logic
-- Business rule implementations
-- Data formatting and serialization helpers
-
-## What to skip unless explicitly requested
-
-- HTTP handlers and route definitions
-- Database queries and repository methods
-- External API clients
-- File system operations
-- Message queue consumers/producers
-
-If testing imperative shell code is explicitly requested, prefer integration tests over unit tests with mocks—they catch real issues and are less likely to break when implementation details change.
 
 # Rule: Use `repoq` for Repository Queries
 

@@ -5,7 +5,7 @@ use std::process::Command;
 // Basic check that the binary is invocable and Clap wiring works
 #[test]
 fn prints_version() {
-    let mut cmd = Command::cargo_bin("i2pd-exporter").unwrap();
+    let mut cmd = Command::new(assert_cmd::cargo_bin!("i2pd-exporter"));
     cmd.arg("--version");
     cmd.assert()
         .success()

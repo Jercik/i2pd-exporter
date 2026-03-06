@@ -30,7 +30,7 @@ jobs:
             vault_credential: ci-claude-oauth-token
           - agent: codex
             display_name: Codex CLI
-            model: gpt-5.3-codex
+            model: gpt-5.4
             vault_credential: ci-codex-oauth-credentials
     name: review (${{ matrix.agent }}, ${{ matrix.model }})
     timeout-minutes: 12
