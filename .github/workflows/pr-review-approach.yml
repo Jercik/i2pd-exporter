@@ -32,7 +32,7 @@ jobs:
           - agent: gemini
             display_name: Gemini
             model: gemini-3.1-pro-preview
-            vault_credential: ci-gemini-oauth-credentials
+            vault_credential: ci-gemini-api-key
           - agent: copilot
             display_name: Copilot
             model: gpt-5.4

@@ -102,6 +102,6 @@ i2p_router_tunnels_tbmqueue 1.0
 # HELP i2p_router_net_bytes Total network bytes since router start.
 # TYPE i2p_router_net_bytes counter
 i2p_router_net_bytes_total{direction="inbound"} 123456.0
-i2p_router_net_bytes_total{direction="transit"} 77777.0
+i2p_router_net_bytes_total{direction="transit"} 88888.0
 i2p_router_net_bytes_total{direction="outbound"} 654321.0
 # EOF

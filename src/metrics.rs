@@ -429,7 +429,7 @@ fn add_router_metrics(registry: &mut Registry, d: &RouterInfoResult) {
     // i2p_router_net_bytes_total{direction} (counter)
     let any_totals = d.net_total_received_bytes.is_some()
         || d.net_total_sent_bytes.is_some()
-        || d.net_transit_sent_bytes.is_some();
+        || d.net_total_transit_bytes.is_some();
     if any_totals {
         let fam = Family::<DirectionLabels, Counter<f64>>::default();
         // prometheus_client appends `_total` for counters; register without the suffix
@@ -450,7 +450,7 @@ fn add_router_metrics(registry: &mut Registry, d: &RouterInfoResult) {
             })
             .inc_by(v);
         }
-        if let Some(v) = d.net_transit_sent_bytes {
+        if let Some(v) = d.net_total_transit_bytes {
             fam.get_or_create(&DirectionLabels {
                 direction: "transit",
             })
