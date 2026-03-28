@@ -40,7 +40,7 @@ const ROUTER_INFO_KEYS_BATCH_2: &[&str] = &[
     "i2p.router.netdb.leasesets",              // Request LeaseSets known to NetDB
     "i2p.router.net.total.received.bytes",     // Request total received bytes
     "i2p.router.net.total.sent.bytes",         // Request total sent bytes
-    "i2p.router.net.transit.sent.bytes",       // Request total transit-sent bytes
+    "i2p.router.net.total.transit.bytes",      // Request total transit bytes transmitted
 ];
 
 fn build_router_info_params(keys: &[&str], token: &str) -> Value {
