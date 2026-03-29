@@ -15,14 +15,6 @@ pub struct Cli {
 
     #[arg(
         long,
-        env = "I2PCONTROL_PASSWORD",
-        default_value = "itoopie",
-        help = "Password for I2PControl API"
-    )]
-    pub i2pcontrol_password: String,
-
-    #[arg(
-        long,
         env = "METRICS_LISTEN_ADDR",
         default_value = "0.0.0.0:9600",
         help = "Address:port for metrics HTTP server"
@@ -49,7 +41,6 @@ pub struct Cli {
 #[derive(Debug, Clone)]
 pub struct Config {
     pub i2p_addr: String,
-    pub i2p_password: String,
     pub listen_addr: SocketAddr,
     pub tls_insecure: bool,
     pub max_scrape_timeout: Duration,
@@ -68,7 +59,6 @@ impl TryFrom<Cli> for Config {
 
         Ok(Config {
             i2p_addr: cli.i2pcontrol_address,
-            i2p_password: cli.i2pcontrol_password,
             listen_addr,
             tls_insecure: cli.i2pcontrol_tls_insecure,
             max_scrape_timeout: Duration::from_secs(cli.max_scrape_timeout_seconds),
