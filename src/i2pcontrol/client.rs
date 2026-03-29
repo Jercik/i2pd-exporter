@@ -43,13 +43,12 @@ const ROUTER_INFO_KEYS_BATCH_2: &[&str] = &[
     "i2p.router.net.total.transit.bytes",      // Request total transit bytes transmitted
 ];
 
-fn build_router_info_params(keys: &[&str], token: &str) -> Value {
+fn build_router_info_params(keys: &[&str]) -> Value {
     let mut params = serde_json::Map::new();
     for key in keys {
         // Use empty string instead of null; some i2pd builds reject nulls with parse errors.
         params.insert((*key).to_string(), Value::String(String::new()));
     }
-    params.insert("Token".to_string(), Value::String(token.to_string()));
     Value::Object(params)
 }
 
@@ -142,7 +141,7 @@ impl I2pControlClient {
 
             // If no token exists, call authenticate() to get one.
             // If a token exists, use it.
-            let token = match current_token {
+            let _token = match current_token {
                 Some(tok) => tok,
                 None => {
                     info!("No token found, authenticating...");
@@ -184,7 +183,7 @@ impl I2pControlClient {
                     )
                     .into());
                 }
-                let params = build_router_info_params(keys, &token);
+                let params = build_router_info_params(keys);
 
                 let data = match rpc_call::<RouterInfoResult>(
                     &self.api_client,
