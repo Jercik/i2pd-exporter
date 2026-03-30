@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Native Git hook - enable with: git config core.hooksPath .githooks
+set -euo pipefail
+
+git diff --cached --check
+
+if command -v cargo >/dev/null 2>&1; then
+  cargo fmt --all --check
+  cargo clippy --all-targets --all-features -- -D warnings
+fi

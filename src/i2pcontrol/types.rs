@@ -2,14 +2,6 @@
 
 use serde::Deserialize;
 use serde_aux::prelude::*;
-// (Was: use serde_repr::Deserialize_repr;)
-
-// Result structure for the 'Authenticate' method
-#[derive(Debug, Deserialize, Default)]
-pub struct AuthResult {
-    #[serde(rename = "Token")]
-    pub token: Option<String>,
-}
 
 // Result structure for the 'RouterInfo' method, containing various metrics
 #[derive(Debug, Deserialize, Default)]
@@ -72,8 +64,8 @@ pub struct RouterInfoResult {
     pub net_total_received_bytes: Option<f64>,
     #[serde(rename = "i2p.router.net.total.sent.bytes")]
     pub net_total_sent_bytes: Option<f64>,
-    #[serde(rename = "i2p.router.net.transit.sent.bytes")]
-    pub net_transit_sent_bytes: Option<f64>,
+    #[serde(rename = "i2p.router.net.total.transit.bytes")]
+    pub net_total_transit_bytes: Option<f64>,
 }
 
 impl RouterInfoResult {
@@ -160,8 +152,8 @@ impl RouterInfoResult {
         if let Some(v) = other.net_total_sent_bytes {
             self.net_total_sent_bytes = Some(v);
         }
-        if let Some(v) = other.net_transit_sent_bytes {
-            self.net_transit_sent_bytes = Some(v);
+        if let Some(v) = other.net_total_transit_bytes {
+            self.net_total_transit_bytes = Some(v);
         }
     }
 }

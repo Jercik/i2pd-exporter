@@ -26,5 +26,5 @@
   "i2p.router.netdb.leasesets": 99,
   "i2p.router.net.total.received.bytes": 123456.0,
   "i2p.router.net.total.sent.bytes": 654321.0,
-  "i2p.router.net.transit.sent.bytes": 77777.0
+  "i2p.router.net.total.transit.bytes": 88888.0
 }

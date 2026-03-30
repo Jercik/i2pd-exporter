@@ -24,7 +24,7 @@ jobs:
             os: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -48,15 +48,15 @@ jobs:
         if: runner.os == 'Linux' || runner.os == 'macOS'
         run: |
           cd target/${{ matrix.target }}/release
-          tar czvf i2pd-exporter-${{ matrix.target }}.tar.gz i2pd-exporter
+          tar czvf ${{ github.event.repository.name }}-${{ matrix.target }}.tar.gz ${{ github.event.repository.name }}
           cd ../../..
 
       - name: Upload artifact (Linux/macOS)
         if: runner.os == 'Linux' || runner.os == 'macOS'
         uses: actions/upload-artifact@v4
         with:
-          name: i2pd-exporter-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/i2pd-exporter-${{ matrix.target }}.tar.gz
+          name: ${{ github.event.repository.name }}-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/${{ github.event.repository.name }}-${{ matrix.target }}.tar.gz
 
   release:
     name: Create GitHub Release
@@ -79,7 +79,7 @@ jobs:
       - name: Generate checksums for archives
         run: |
           cd artifacts
-          # Use find to handle files in subdirectories like 'i2pd-exporter-x86_64-unknown-linux-gnu/'
+          # Use find to handle files in subdirectories like '<binary>-x86_64-unknown-linux-gnu/'
           # Generate sha256sums for the .tar.gz files and store in sha256sums.txt
           find . -name '*.tar.gz' -exec sha256sum {} + > sha256sums.txt
           echo "Generated checksums:"
@@ -102,7 +102,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') # Only run on tag pushes
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable

@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+npx -y conventional-commit-msg "$1"

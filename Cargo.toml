@@ -1,6 +1,6 @@
 [package]
 name = "i2pd-exporter"
-version = "2.0.4"
+version = "2.1.0"
 edition = "2021"
 authors = ["The i2pd-exporter Contributors"]
 description = "Prometheus exporter for i2pd (C++ via I2PControl). Not for Java I2P."
@@ -10,7 +10,7 @@ keywords = ["i2p", "i2pd", "prometheus", "exporter", "monitoring"]
 
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "net", "signal"] }
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+reqwest = { version = "0.13", features = ["json", "rustls"], default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde-aux = "4"
