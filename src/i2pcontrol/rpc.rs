@@ -62,29 +62,6 @@ pub enum RpcOutcome<T> {
     Err { error: RpcError },
 }
 
-fn redact_sensitive_fields(mut v: serde_json::Value) -> serde_json::Value {
-    match &mut v {
-        serde_json::Value::Object(map) => {
-            for (k, val) in map.iter_mut() {
-                if matches!(k.as_str(), "Password" | "Token") {
-                    *val = serde_json::Value::String("***redacted***".to_string());
-                } else {
-                    *val = redact_sensitive_fields(val.take());
-                }
-            }
-            serde_json::Value::Object(map.clone())
-        }
-        serde_json::Value::Array(arr) => {
-            let redacted: Vec<_> = arr
-                .iter_mut()
-                .map(|val| redact_sensitive_fields(val.take()))
-                .collect();
-            serde_json::Value::Array(redacted)
-        }
-        _ => v,
-    }
-}
-
 // Generic JSON-RPC call helper
 pub async fn rpc_call<T: DeserializeOwned>(
     client: &reqwest::Client,
@@ -108,8 +85,7 @@ pub async fn rpc_call<T: DeserializeOwned>(
     })?;
 
     if std::env::var("DEBUG_I2PCONTROL_REQ").ok().as_deref() == Some("1") {
-        let redacted = redact_sensitive_fields(req.clone());
-        if let Ok(body_str) = serde_json::to_string(&redacted) {
+        if let Ok(body_str) = serde_json::to_string(&req) {
             log::info!("{} request body: {}", method, body_str);
         }
     }
@@ -127,10 +103,7 @@ pub async fn rpc_call<T: DeserializeOwned>(
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        let body_snippet = if method == "Authenticate" {
-            // Avoid including any upstream response body in error text for auth
-            String::from("<omitted>")
-        } else if body.chars().count() > 2048 {
+        let body_snippet = if body.chars().count() > 2048 {
             truncate_chars(&body, 2048)
         } else {
             body.clone()
@@ -143,9 +116,7 @@ pub async fn rpc_call<T: DeserializeOwned>(
         });
     }
     let text = resp.text().await?;
-    // Optional debug logging for RouterInfo body (can be verbose). Avoid logging Authenticate to not leak secrets.
-    if std::env::var("DEBUG_I2PCONTROL_BODY").ok().as_deref() == Some("1") && method == "RouterInfo"
-    {
+    if std::env::var("DEBUG_I2PCONTROL_BODY").ok().as_deref() == Some("1") {
         // Truncate to avoid excessive logs
         let snippet = if text.chars().count() > 4096 {
             truncate_chars(&text, 4096)
@@ -163,9 +134,7 @@ pub async fn rpc_call<T: DeserializeOwned>(
             method: method.to_string(),
         }),
         Err(e) => {
-            let body_snippet = if method == "Authenticate" {
-                String::from("<omitted>")
-            } else if text.chars().count() > 2048 {
+            let body_snippet = if text.chars().count() > 2048 {
                 truncate_chars(&text, 2048)
             } else {
                 text.clone()

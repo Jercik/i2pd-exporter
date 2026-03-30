@@ -2,14 +2,6 @@
 
 use serde::Deserialize;
 use serde_aux::prelude::*;
-// (Was: use serde_repr::Deserialize_repr;)
-
-// Result structure for the 'Authenticate' method
-#[derive(Debug, Deserialize, Default)]
-pub struct AuthResult {
-    #[serde(rename = "Token")]
-    pub token: Option<String>,
-}
 
 // Result structure for the 'RouterInfo' method, containing various metrics
 #[derive(Debug, Deserialize, Default)]

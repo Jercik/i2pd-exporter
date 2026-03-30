@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use clap::Parser;
-use log::{error, info, warn};
+use log::{info, warn};
 
 // Module declarations
 mod config;
@@ -61,20 +61,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let state = Arc::new(I2pControlClient::new(
         api_client,
         format!("{}/jsonrpc", cfg.i2p_addr.trim_end_matches('/')),
-        cfg.i2p_password,
         cfg.max_scrape_timeout,
     ));
-
-    // Optional quick initial auth so startup doesn't stall; will retry on first scrape.
-    if !state.password.is_empty() {
-        let quick = std::time::Duration::from_secs(5);
-        if let Err(e) = state.authenticate(quick).await {
-            error!(
-                "Initial authentication failed (will retry on scrape): {}",
-                e
-            );
-        }
-    }
 
     // Build routes via server module
     let routes = server::routes(state.clone());

@@ -4,7 +4,7 @@ Tiny, pure‑Rust Prometheus exporter for the **i2pd (C++)** router via **I2PCon
 **Not** compatible with the Java I2P router.
 
 - Serves metrics at **`/metrics`** (default listen: `0.0.0.0:9600`)
-- Handles token auth and retries once on token errors
+- Queries i2pd RouterInfo directly without Authenticate token setup
 - Exposes router metrics (status, uptime, bandwidth, IPv4/IPv6 network status, tunnels, NetDB, totals) + exporter self‑metrics
 - Small static binary (LTO, stripped)
 
@@ -30,11 +30,11 @@ Optional cross‑build for Linux (x86_64): `./build-linux-docker.sh` → `./dist
 ## Configuration
 
 > Provide the **base I2PControl URL without `/jsonrpc`**. The exporter appends `/jsonrpc`.
+> This exporter targets **i2pd only** and reads `RouterInfo` without sending an I2PControl `Token`.
 
 | CLI flag                       | Env var                      | Default                  | Description                                   |
 | ------------------------------ | ---------------------------- | ------------------------ | --------------------------------------------- |
 | `--i2pcontrol-address`         | `I2PCONTROL_ADDRESS`         | `https://127.0.0.1:7650` | I2PControl base URL (http or https).          |
-| `--i2pcontrol-password`        | `I2PCONTROL_PASSWORD`        | `itoopie`                | I2PControl password.                          |
 | `--metrics-listen-addr`        | `METRICS_LISTEN_ADDR`        | `0.0.0.0:9600`           | Address:port for the HTTP server.             |
 | `--i2pcontrol-tls-insecure`    | `I2PCONTROL_TLS_INSECURE`    | `false`                  | Accept invalid TLS certs (not recommended).   |
 | `--max-scrape-timeout-seconds` | `MAX_SCRAPE_TIMEOUT_SECONDS` | `120`                    | **Hard cap** for the effective scrape budget. |

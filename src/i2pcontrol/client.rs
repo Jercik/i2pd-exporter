@@ -2,12 +2,10 @@
 
 use std::time::{Duration, Instant};
 
-use log::{info, warn};
 use serde_json::Value;
-use tokio::sync::Mutex;
 
-use super::rpc::{rpc_call, RpcCallError};
-use super::types::{AuthResult, RouterInfoResult};
+use super::rpc::rpc_call;
+use super::types::RouterInfoResult;
 
 const ROUTER_INFO_KEYS_BATCH_1: &[&str] = &[
     "i2p.router.status",              // Router status as string "1" or "0"
@@ -43,204 +41,76 @@ const ROUTER_INFO_KEYS_BATCH_2: &[&str] = &[
     "i2p.router.net.total.transit.bytes",      // Request total transit bytes transmitted
 ];
 
-fn build_router_info_params(keys: &[&str], token: &str) -> Value {
+fn build_router_info_params(keys: &[&str]) -> Value {
     let mut params = serde_json::Map::new();
     for key in keys {
         // Use empty string instead of null; some i2pd builds reject nulls with parse errors.
         params.insert((*key).to_string(), Value::String(String::new()));
     }
-    params.insert("Token".to_string(), Value::String(token.to_string()));
     Value::Object(params)
 }
 
 // Holds shared state for the application, including the API client,
-// configuration, and the authentication token (protected by a Mutex).
+// and scrape configuration.
 pub struct I2pControlClient {
     pub api_client: reqwest::Client, // HTTP client for making API requests
     pub api_url: String,             // Full URL for the I2PControl JSON-RPC endpoint
-    pub password: String,            // Password for the I2PControl API
-    pub token: Mutex<Option<String>>, // Current authentication token (None if not authenticated)
-    // Singleflight-style mutex to ensure only one in-flight authentication
-    // happens at a time across concurrent scrapes.
-    auth_lock: Mutex<()>,
     pub max_scrape_timeout: Duration, // Hard cap for header-derived scrape timeout
 }
 
 impl I2pControlClient {
     // Creates a new AppState instance.
-    pub fn new(
-        api_client: reqwest::Client,
-        api_url: String,
-        password: String,
-        max_scrape_timeout: Duration,
-    ) -> Self {
+    pub fn new(api_client: reqwest::Client, api_url: String, max_scrape_timeout: Duration) -> Self {
         I2pControlClient {
             api_client,
             api_url,
-            password,
-            token: Mutex::new(None),
-            auth_lock: Mutex::new(()),
             max_scrape_timeout,
         }
     }
 
-    // Authenticate with the I2PControl JSON-RPC API using the configured password.
-    // Stores the obtained token in the AppState's Mutex and returns it.
-    pub async fn authenticate(
-        &self,
-        timeout: Duration,
-    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        // Ensure only one concurrent authentication attempt is in-flight.
-        let _flight = self.auth_lock.lock().await;
-
-        // Double-check if another task already refreshed the token while we waited.
-        if let Some(existing) = { self.token.lock().await.clone() } {
-            return Ok(existing);
-        }
-
-        let params = serde_json::json!({ "API": 1, "Password": self.password });
-        let result: AuthResult = rpc_call(
-            &self.api_client,
-            &self.api_url,
-            "Authenticate",
-            params,
-            timeout,
-        )
-        .await
-        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?;
-
-        if let Some(token) = result.token {
-            {
-                let mut guard = self.token.lock().await;
-                *guard = Some(token.clone());
-            }
-            info!("Obtained authentication token from I2PControl");
-            return Ok(token);
-        }
-
-        Err("Authentication failed: no token received".into())
-    }
-
     // Fetch router information from the I2PControl API.
-    // Handles token acquisition and re-authentication if the token expires.
     pub async fn fetch_router_info(
         &self,
         overall_timeout: Duration,
     ) -> Result<RouterInfoResult, Box<dyn std::error::Error + Send + Sync>> {
         let deadline = Instant::now() + overall_timeout;
-        let mut did_retry = false; // Flag to prevent infinite retry loops
         let mut combined = RouterInfoResult::default();
-        let mut next_batch_idx = 0usize; // Track progress so partial successes are preserved across retries
 
-        'outer: loop {
-            // Loop to handle potential re-authentication
-            // Get the current token from the mutex
-            let current_token = {
-                let guard = self.token.lock().await; // Lock the mutex
-                guard.clone() // Clone the Option<String>
-            }; // Mutex guard is dropped here
-
-            // If no token exists, call authenticate() to get one.
-            // If a token exists, use it.
-            let token = match current_token {
-                Some(tok) => tok,
-                None => {
-                    info!("No token found, authenticating...");
-                    let now = Instant::now();
-                    let rem = if now >= deadline {
-                        Duration::from_millis(0)
-                    } else {
-                        deadline.saturating_duration_since(now)
-                    };
-                    if rem.is_zero() {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::TimedOut,
-                            "deadline exceeded before authentication",
-                        )
-                        .into());
-                    }
-                    self.authenticate(rem).await?
-                }
+        for (batch_idx, keys) in [ROUTER_INFO_KEYS_BATCH_1, ROUTER_INFO_KEYS_BATCH_2]
+            .iter()
+            .enumerate()
+        {
+            let now = Instant::now();
+            let rem = if now >= deadline {
+                Duration::from_millis(0)
+            } else {
+                deadline.saturating_duration_since(now)
             };
-
-            for (batch_idx, keys) in [ROUTER_INFO_KEYS_BATCH_1, ROUTER_INFO_KEYS_BATCH_2]
-                .iter()
-                .enumerate()
-                .skip(next_batch_idx)
-            {
-                let now = Instant::now();
-                let rem = if now >= deadline {
-                    Duration::from_millis(0)
-                } else {
-                    deadline.saturating_duration_since(now)
-                };
-                if rem.is_zero() {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::TimedOut,
-                        format!(
-                            "deadline exceeded before RouterInfo batch {}",
-                            batch_idx + 1
-                        ),
-                    )
-                    .into());
-                }
-                let params = build_router_info_params(keys, &token);
-
-                let data = match rpc_call::<RouterInfoResult>(
-                    &self.api_client,
-                    &self.api_url,
-                    "RouterInfo",
-                    params,
-                    rem,
+            if rem.is_zero() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    format!(
+                        "deadline exceeded before RouterInfo batch {}",
+                        batch_idx + 1
+                    ),
                 )
-                .await
-                {
-                    Ok(data) => data,
-                    Err(err) => {
-                        let is_token_err = matches!(
-                            err,
-                            RpcCallError::Rpc {
-                                code: -32004..=-32002,
-                                ..
-                            }
-                        );
-                        if is_token_err && !did_retry {
-                            warn!(
-                                "Token error during RouterInfo batch {}, re-authenticating...: {}",
-                                batch_idx + 1,
-                                err
-                            );
-                            {
-                                let mut guard = self.token.lock().await;
-                                *guard = None;
-                            }
-                            let now = Instant::now();
-                            let rem = if now >= deadline {
-                                Duration::from_millis(0)
-                            } else {
-                                deadline.saturating_duration_since(now)
-                            };
-                            if rem.is_zero() {
-                                return Err(std::io::Error::new(
-                                    std::io::ErrorKind::TimedOut,
-                                    "deadline exceeded before re-authentication",
-                                )
-                                .into());
-                            }
-                            let _ = self.authenticate(rem).await?;
-                            did_retry = true;
-                            // Preserve already merged batches and retry from the failed batch.
-                            continue 'outer;
-                        }
-                        return Err(Box::new(err));
-                    }
-                };
-
-                combined.merge_from(data);
-                next_batch_idx = batch_idx + 1;
+                .into());
             }
+            let params = build_router_info_params(keys);
 
-            return Ok(combined);
+            let data = rpc_call::<RouterInfoResult>(
+                &self.api_client,
+                &self.api_url,
+                "RouterInfo",
+                params,
+                rem,
+            )
+            .await
+            .map_err(|err| -> Box<dyn std::error::Error + Send + Sync> { Box::new(err) })?;
+
+            combined.merge_from(data);
         }
+
+        Ok(combined)
     }
 }
