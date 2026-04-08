@@ -39,7 +39,6 @@ jobs:
           sudo apt-get install -y --no-install-recommends crossbuild-essential-arm64 gcc-aarch64-linux-gnu
 
       - name: Build binary
-        # Set the linker explicitly for cross-compilation targets on Linux
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: cargo build --verbose --release --target ${{ matrix.target }}
@@ -60,10 +59,9 @@ jobs:
 
   release:
     name: Create GitHub Release
-    needs: build # Run after build job completes
+    needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v') # Only run on tag pushes
-    # Grant permissions for the GITHUB_TOKEN to allow creating releases
+    if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
 
@@ -71,16 +69,14 @@ jobs:
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts/ # Download all artifacts to this directory
+          path: artifacts/
 
-      - name: List downloaded artifacts # Optional: for debugging
+      - name: List downloaded artifacts
         run: ls -R artifacts/
 
       - name: Generate checksums for archives
         run: |
           cd artifacts
-          # Use find to handle files in subdirectories like '<binary>-x86_64-unknown-linux-gnu/'
-          # Generate sha256sums for the .tar.gz files and store in sha256sums.txt
           find . -name '*.tar.gz' -exec sha256sum {} + > sha256sums.txt
           echo "Generated checksums:"
           cat sha256sums.txt
@@ -89,7 +85,6 @@ jobs:
       - name: Create Release and Upload Assets
         uses: softprops/action-gh-release@v2
         with:
-          # Creates a published release from the tag (set draft/prerelease via inputs)
           prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             artifacts/*/*.tar.gz
@@ -97,9 +92,9 @@ jobs:
 
   publish:
     name: Publish to crates.io
-    needs: build # Run after build job completes
+    needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v') # Only run on tag pushes
+    if: startsWith(github.ref, 'refs/tags/v')
 
     steps:
       - uses: actions/checkout@v6
@@ -109,6 +104,5 @@ jobs:
 
       - name: Publish crate
         env:
-          # The API token for crates.io stored as a repository secret
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: cargo publish
