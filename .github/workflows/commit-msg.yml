@@ -14,13 +14,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22.19.0"
+
       - name: Validate commits with commitlint
         shell: bash
         run: |
           set -euo pipefail
 
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            npx -y conventional-commit-msg --from "${{ github.event.pull_request.base.sha }}" --to "${{ github.event.pull_request.head.sha }}"
+            npm exec --yes --package=conventional-commit-msg@latest -- conventional-commit-msg --from "${{ github.event.pull_request.base.sha }}" --to "${{ github.event.pull_request.head.sha }}"
           else
-            npx -y conventional-commit-msg --last
+            npm exec --yes --package=conventional-commit-msg@latest -- conventional-commit-msg --last
           fi
