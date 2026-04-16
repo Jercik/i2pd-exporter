@@ -1,0 +1,27 @@
+---
+name: PR Approach Review
+
+on:
+  pull_request_target:
+    types: [opened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to review"
+        required: true
+        type: number
+
+jobs:
+  review:
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
+    uses: Jercik/axgithub/.github/workflows/pr-review.yml@v1
+    with:
+      label: approach
+      recipes: '["pr-review-approach-1","pr-review-approach-2","pr-review-approach-3","pr-review-approach-4"]'
+      pr_number: ${{ github.event.pull_request.number || inputs.pr_number }}
+    secrets:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      AXRECIPE_API_KEY: ${{ secrets.AXRECIPE_API_KEY }}

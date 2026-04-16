@@ -1,28 +1,23 @@
 # Rule: Mandatory Startup Reads
 
-Before taking any action—answering questions, editing files, or running commands—read these files in order:
-
-- **@README.md** — Project overview and context
-
-If a file does not exist, skip it silently and continue.
+Before taking any action, read @README.md for project overview and context. If it does not exist, skip silently and continue.
 
 # Rule: `askpplx` CLI Usage
 
-**At session start:** Run `npx -y askpplx --help` to confirm the tool works and learn available options.
+Run `npx -y askpplx --help` at session start to confirm the tool works and learn available options.
 
-Use `askpplx` to query Perplexity for real-time web search. Use it to verify external facts before acting—documentation, API behavior, library versions, best practices. A lookup is far cheaper than debugging hallucinated code or explaining why an approach failed. Verification is fast and cheap—prefer looking up information over making assumptions. When in doubt, verify.
+Use `askpplx` for real-time web search via Perplexity. Verify external facts—documentation, API behavior, library versions, best practices—before acting on them. A lookup costs far less than debugging hallucinated code.
 
 # Rule: Avoid Leaky Abstractions
 
-Design abstractions around consumer needs, not implementation details. A leaky abstraction forces callers to understand the underlying system to use it correctly—defeating its purpose. While all non-trivial abstractions leak somewhat (Joel Spolsky's Law of Leaky Abstractions), minimize leakage by ensuring your interface doesn't expose internal constraints, infrastructure artifacts, or inconsistent behavior.
+Design interfaces around what callers need, not how the system works internally. An abstraction is leaky when using it correctly requires knowledge of underlying storage, infrastructure, or error behavior. Keep signatures consistent, return domain types instead of backend artifacts, and inject infrastructure dependencies through constructors rather than method parameters.
 
 ## Warning signs
 
-- **Inconsistent signatures**: Some methods require parameters others don't, revealing backend differences
-- **Infrastructure artifacts**: Connection strings, database IDs, or ORM-specific constructs in the API
-- **Performance surprises**: Logically equivalent operations with vastly different performance
-- **Implementation-dependent error handling**: Callers must catch specific exceptions from underlying layers
-- **Required internal knowledge**: Using the abstraction safely requires understanding what's beneath it
+- Inconsistent method signatures that reflect backend differences
+- Infrastructure details (connection strings, transaction handles) exposed in the interface
+- Large performance differences between similar operations
+- Errors that force callers to understand underlying layers
 
 ## Example
 
@@ -30,48 +25,36 @@ Design abstractions around consumer needs, not implementation details. A leaky a
 // Leaky: exposes database concerns, inconsistent signatures
 interface ReservationRepository {
   create(restaurantId: number, reservation: Reservation): number; // returns DB ID
-  findById(id: string): Reservation | null; // why no restaurantId here?
+  findById(id: string): Reservation | null; // why no restaurantId?
   update(reservation: Reservation): void;
   connect(connectionString: string): void;
-  disconnect(): void;
 }
 
-// Better: consistent interface, infrastructure hidden
+// Better: consistent interface, infrastructure hidden, injected via constructor
 interface ReservationRepository {
   create(restaurantId: number, reservation: Reservation): Promise<void>;
   findById(restaurantId: number, id: string): Promise<Reservation | null>;
   update(restaurantId: number, reservation: Reservation): Promise<void>;
 }
-
-// Connection management injected, not exposed
-class PostgresReservationRepository implements ReservationRepository {
-  constructor(private readonly pool: Pool) {}
-  // ...
-}
 ```
 
-## Practical guidance
+# Rule: Comments Explain Why, Not What
 
-- Design interfaces for what callers need to do, not how you implement it
-- Keep signatures consistent—if one method needs context, similar methods should too
-- Return domain types, not infrastructure artifacts (avoid raw database IDs)
-- Inject infrastructure dependencies through constructors, not method parameters
-- Normalize error handling so callers don't catch implementation-specific exceptions
+Write comments that capture intent, constraints, and reasoning the code cannot show—why a decision was made, which alternatives were rejected, what external factor forced a workaround. Skip comments that restate what the code already expresses; names convey purpose, types convey shape, and the code itself conveys what. The _why_ is what future readers cannot recover from the code alone, and it stops the next person from "cleaning up" something load-bearing.
+
+```ts
+// BAD: restates what the code says
+// Increment counter by 1
+counter += 1;
+
+// GOOD: records a non-obvious external constraint
+// Stripe rejects descriptions over 500 chars; truncate defensively
+const description = raw.slice(0, 500);
+```
 
 # Rule: Early Returns
 
-Handle edge cases and invalid states at the top of a function with guard clauses that return early. This flattens nested conditionals and keeps the happy path obvious.
-
-```ts
-function getDiscount(user: User | null) {
-  if (!user) return 0;
-  if (!user.isActive) return 0;
-  if (user.membership === "premium") return 0.2;
-  return 0.1;
-}
-```
-
-Invert conditions and exit immediately—null checks, permission checks, validation, empty collections. Main logic stays at the top level with minimal indentation.
+Handle edge cases and invalid states at the top of a function with guard clauses that return early. Invert conditions and exit immediately—null checks, permission checks, validation, empty collections. Main logic stays at the top level with minimal indentation.
 
 # Rule: File Naming Matches Contents
 
@@ -154,7 +137,18 @@ return formatRemovalResult(removedFrom);
 
 ## When to extract
 
-Extract when a name clarifies complex intent, you need consistent behavior across many call sites, the function encapsulates a coherent standalone concept, or testing it in isolation provides value. Don't extract for single callers, because "we might need this elsewhere," or when the name describes implementation rather than purpose.
+Extract when:
+
+- A name clarifies complex intent
+- You need consistent behavior across many call sites
+- The function encapsulates a coherent standalone concept
+- Testing it in isolation provides value
+
+Don't extract:
+
+- For single callers
+- Because "we might need this elsewhere"
+- When the name describes implementation rather than purpose
 
 ## The wrong abstraction
 
@@ -178,33 +172,18 @@ Unlike production code that handles varied inputs, tests verify specific cases. 
 
 Test utilities are acceptable for setup and data preparation—fixtures, builders, factories, mock configuration—but not for computing expected values. Keep assertion logic in the test body with literal expectations.
 
-# Rule: Normalize User Input
+# Rule: Package Manager Execution
 
-Accept flexible input formats and normalize programmatically. Don't reject input because of formatting characters users naturally include—spaces in credit card numbers, parentheses in phone numbers, hyphens in IDs. Computers are good at removing that.
+How different package manager commands resolve binaries:
 
-```ts
-import * as z from "zod";
+| Command           | Behavior                                                                |
+| ----------------- | ----------------------------------------------------------------------- |
+| `pnpm exec foo`   | Runs from `./node_modules/.bin`; falls back to system PATH              |
+| `pnpx foo`        | Always fetches from registry (uses dlx cache); ignores local installs   |
+| `npx foo`         | Checks local `node_modules/.bin` → global → downloads from registry     |
+| `npx foo@version` | Resolves version, uses local if exact match exists, otherwise downloads |
 
-// BAD - forces users to format input a specific way
-const phoneSchema = z.string().regex(/^\d{10}$/, "Only digits allowed");
-
-// GOOD - accept flexible input, normalize it
-const phoneSchema = z
-  .string()
-  .transform((s) => s.replace(/[\s().-]/g, ""))
-  .pipe(z.string().regex(/^\d{10}$/, "Must be 10 digits"));
-```
-
-When accepting user input:
-
-- **Strip formatting characters** (spaces, hyphens, parentheses, dots) before validation
-- **Trim whitespace** from text fields
-- **Normalize case** when case doesn't matter (emails, usernames)
-- **Accept common variations** (with/without country code for phones, with/without protocol for URLs)
-
-**Never normalize passwords.** Users should be able to use any characters exactly as entered—normalizing passwords reduces entropy and can break legitimate credentials. The only acceptable transformation is Unicode normalization (NFC/NFKC) for cross-platform compatibility before hashing.
-
-The validation error should describe what's actually wrong with the data, not complain about formatting the computer could have handled.
+`pnpx` is an alias for `pnpm dlx`.
 
 # Rule: Parse, Don't Validate
 
@@ -233,7 +212,7 @@ function handleRequest(body: unknown): User {
 ## Practical guidance
 
 - **Parse at system boundaries.** Convert external input (JSON, environment variables, API responses) to precise domain types early. Use `.parse()` or `.safeParse()`.
-- **Strengthen argument types.** Instead of returning `T | undefined`, require callers to provide already-parsed data.
+- **Strengthen argument types.** Instead of accepting `T | undefined`, require callers to provide already-parsed data.
 - **Let schemas encode constraints.** If a function needs a non-empty array, positive number, or valid email, define a schema that encodes that guarantee.
 - **Treat `void`-returning checks with suspicion.** A function that validates but returns nothing is easy to forget.
 - **Use `.refine()` for custom constraints.** When built-in validators aren't enough, add refinements that preserve type information.
@@ -249,15 +228,14 @@ type PositiveInt = z.infer<typeof PositiveInt>;
 
 # Rule: Use `repoq` for Repository Queries
 
-Run `npx -y repoq --help` to learn available options.
+Run `npx -y repoq --help` at session start to confirm the tool works and learn available options.
 
-Use `repoq` instead of piping `git`/`gh` commands through `awk`/`jq`/`grep`.
-Each command handles edge cases (detached HEAD, unborn branches, missing auth)
-and returns validated JSON. Prefer `repoq` for reading state; use raw `git`/`gh`
-for mutations (commit, push, merge).
+Use `repoq` for reading repository state instead of piping `git`/`gh` through `awk`/`jq`/`grep`. Each command handles edge cases (detached HEAD, unborn branches, missing auth) and returns validated JSON. Use raw `git`/`gh` for mutations (commit, push, merge).
 
 # Rule: Cargo Dependency Updates
 
-Use `cargo update` to upgrade dependencies to the latest versions within existing semver ranges. Version specifiers like `"1.0"` or `"0.12"` use the caret (`^`) operator by default, allowing updates up to (but not including) the next breaking change. Edit `Cargo.toml` only when changing the semver constraint itself, such as upgrading to a new major version (`warp = "0.3"` to `warp = "0.4"`).
+Run `cargo update` to upgrade dependencies to the latest versions allowed by existing SemVer ranges; this modifies `Cargo.lock` only. By default, Cargo treats plain version specifiers (`"1.0"`, `"0.12"`) as caret (`^`) ranges that allow updates up to, but not including, the next SemVer-breaking release.
 
-Note: For `0.x` versions, Cargo treats minor version bumps as breaking—`"0.12"` allows updates within `0.12.x` but not to `0.13.0`.
+Edit `Cargo.toml` only to widen the range itself, such as bumping `serde = "1.0"` to `serde = "2.0"` to adopt a new major version.
+
+For `0.x` versions, Cargo treats minor bumps as breaking: `"0.12"` allows updates within `0.12.x` but not to `0.13.0`. Moving from `"0.12"` to `"0.13"` therefore requires a `Cargo.toml` edit, not `cargo update`.
