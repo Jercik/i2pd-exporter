@@ -1,3 +1,4 @@
+---
 name: commit-msg
 
 on: [push, pull_request]
@@ -25,7 +26,11 @@ jobs:
           set -euo pipefail
 
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            npm exec --yes --package=conventional-commit-msg@latest -- conventional-commit-msg --from "${{ github.event.pull_request.base.sha }}" --to "${{ github.event.pull_request.head.sha }}"
+            npm exec --yes --package=conventional-commit-msg@latest -- \
+              conventional-commit-msg \
+              --from "${{ github.event.pull_request.base.sha }}" \
+              --to "${{ github.event.pull_request.head.sha }}"
           else
-            npm exec --yes --package=conventional-commit-msg@latest -- conventional-commit-msg --last
+            npm exec --yes --package=conventional-commit-msg@latest -- \
+              conventional-commit-msg --last
           fi

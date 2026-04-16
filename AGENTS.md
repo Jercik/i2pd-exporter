@@ -40,12 +40,24 @@ interface ReservationRepository {
 
 # Rule: Comments Explain Why, Not What
 
-Write comments that capture intent, constraints, and reasoning the code cannot show—why a decision was made, which alternatives were rejected, what external factor forced a workaround. Skip comments that restate what the code already expresses; names convey purpose, types convey shape, and the code itself conveys what. The _why_ is what future readers cannot recover from the code alone, and it stops the next person from "cleaning up" something load-bearing.
+Default to writing no comments. Only add one when the WHY is non-obvious — a hidden constraint, a subtle invariant, a workaround for a specific bug, behavior that would surprise a reader. If removing the comment wouldn't confuse a future reader, don't write it.
+
+When a comment is warranted, capture intent, constraints, and reasoning the code cannot show: why a decision was made, which alternatives were rejected, what external factor forced a workaround. That's what future readers cannot recover from the code alone, and it stops the next person from "cleaning up" something load-bearing.
+
+Never explain WHAT the code does. Names convey purpose, types convey shape, the code itself conveys behavior. Never reference the current task, fix, or callers ("used by X", "added for the Y flow", "handles the case from issue #123") — those belong in the PR description and rot as the codebase evolves. Don't add comments, docstrings, or type annotations to code you didn't change.
+
+Keep comments to one short line. Never write multi-paragraph docstrings or multi-line comment blocks.
 
 ```ts
 // BAD: restates what the code says
 // Increment counter by 1
 counter += 1;
+
+// BAD: references caller context that will rot
+// Used by the checkout flow after the Stripe webhook fires
+function markOrderPaid(orderId: string) {
+  /* ... */
+}
 
 // GOOD: records a non-obvious external constraint
 // Stripe rejects descriptions over 500 chars; truncate defensively
@@ -137,16 +149,16 @@ return formatRemovalResult(removedFrom);
 
 ## When to extract
 
-Extract when:
+Extract when duplication causes real maintenance risk, not merely because code appears twice:
 
 - A name clarifies complex intent
-- You need consistent behavior across many call sites
+- Multiple call sites must stay in lockstep and silent divergence would be a bug
 - The function encapsulates a coherent standalone concept
 - Testing it in isolation provides value
 
-Don't extract:
+Don't extract for hypothetical reuse:
 
-- For single callers
+- For a single caller
 - Because "we might need this elsewhere"
 - When the name describes implementation rather than purpose
 
