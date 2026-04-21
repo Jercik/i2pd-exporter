@@ -182,7 +182,7 @@ expect(getPhotosUrl()).toBe("http://example.com/photos"); // fails, reveals the 
 
 Unlike production code that handles varied inputs, tests verify specific cases. State expectations directly rather than computing them. When a test fails, the expected value should be immediately readable without mental evaluation.
 
-Test utilities are acceptable for setup and data preparation—fixtures, builders, factories, mock configuration—but not for computing expected values. Keep assertion logic in the test body with literal expectations.
+Use test utilities for setup and data preparation—fixtures, builders, factories, mock configuration—but never for computing expected values. Keep assertion logic in the test body with literal expectations.
 
 # Rule: Package Manager Execution
 
