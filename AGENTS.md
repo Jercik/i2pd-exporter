@@ -4,9 +4,7 @@ Before taking any action, read @README.md for project overview and context. If i
 
 # Rule: `askpplx` CLI Usage
 
-Run `npx -y askpplx --help` at session start to confirm the tool works and learn available options.
-
-Use `askpplx` for real-time web search via Perplexity. Verify external facts—documentation, API behavior, library versions, best practices—before acting on them. A lookup costs far less than debugging hallucinated code.
+Use `askpplx` for real-time web search via Perplexity. Verify external facts—documentation, API behavior, library versions, best practices—before acting on them. A lookup costs far less than debugging hallucinated code. Run `npx -y askpplx --help` if unsure of the available options.
 
 # Rule: Avoid Leaky Abstractions
 
@@ -32,7 +30,7 @@ interface ReservationRepository {
 
 // Better: consistent interface, infrastructure hidden, injected via constructor
 interface ReservationRepository {
-  create(restaurantId: number, reservation: Reservation): Promise<void>;
+  create(restaurantId: number, draft: NewReservation): Promise<Reservation>;
   findById(restaurantId: number, id: string): Promise<Reservation | null>;
   update(restaurantId: number, reservation: Reservation): Promise<void>;
 }
@@ -124,11 +122,7 @@ email.bulkSend(
 );
 ```
 
-## Testing strategy
-
-Focus testing on the functional core. These tests are fast, deterministic, need no mocks, and provide high value per line of test code. Do not write tests for the imperative shell unless the user explicitly requests them—when the core is well-tested, the shell becomes thin orchestration where bugs are easy to spot through review.
-
-If shell tests are explicitly requested, prefer integration tests over unit tests with mocks.
+Test the functional core, not the shell. Core tests are fast, deterministic, and need no mocks; the shell becomes thin orchestration where bugs are easy to spot through review. If shell tests are explicitly requested, prefer integration tests over unit tests with mocks.
 
 # Rule: Inline Obvious Code
 
@@ -240,9 +234,7 @@ type PositiveInt = z.infer<typeof PositiveInt>;
 
 # Rule: Use `repoq` for Repository Queries
 
-Run `npx -y repoq --help` at session start to confirm the tool works and learn available options.
-
-Use `repoq` for reading repository state instead of piping `git`/`gh` through `awk`/`jq`/`grep`. Each command handles edge cases (detached HEAD, unborn branches, missing auth) and returns validated JSON. Use raw `git`/`gh` for mutations (commit, push, merge).
+Use `repoq` for reading repository state instead of piping `git`/`gh` through `awk`/`jq`/`grep`. Each command handles edge cases (detached HEAD, unborn branches, missing auth) and returns validated JSON. Use raw `git`/`gh` for mutations (commit, push, merge). Run `npx -y repoq --help` if unsure of the available subcommands.
 
 # Rule: Cargo Dependency Updates
 
