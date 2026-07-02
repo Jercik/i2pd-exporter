@@ -1,0 +1,42 @@
+---
+name: PR Review
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to review"
+        required: true
+        type: number
+
+jobs:
+  approach:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.action == 'opened' }}
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
+    uses: Jercik/axgithub/.github/workflows/pr-review.yml@v1
+    with:
+      label: approach
+      recipes: '[{"recipe":"pr-review-approach-smart","name":"smart draw 1"},{"recipe":"pr-review-approach-smart","name":"smart draw 2"},"pr-review-approach-2","pr-review-approach-3"]'
+      pr_number: ${{ github.event.pull_request.number || inputs.pr_number }}
+    secrets:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      AXRECIPE_API_KEY: ${{ secrets.AXRECIPE_API_KEY }}
+
+  code:
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
+    uses: Jercik/axgithub/.github/workflows/pr-review.yml@v1
+    with:
+      label: code
+      recipes: '[{"recipe":"pr-review-code-smart","name":"smart draw 1"},{"recipe":"pr-review-code-smart","name":"smart draw 2"}]'
+      pr_number: ${{ github.event.pull_request.number || inputs.pr_number }}
+    secrets:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      AXRECIPE_API_KEY: ${{ secrets.AXRECIPE_API_KEY }}
