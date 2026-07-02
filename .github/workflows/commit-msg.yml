@@ -1,7 +1,11 @@
 ---
 name: commit-msg
 
-on: [push, pull_request]
+# Validate on pull_request only; a post-merge --last check would choke on the
+# immutable, auto-composed squash body whose lines exceed the body-length limit.
+
+on:
+  pull_request:
 
 permissions:
   contents: read
@@ -10,6 +14,8 @@ jobs:
   commitlint:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      COMMITLINT_PACKAGE_VERSION: "1.0.3"
     steps:
       - uses: actions/checkout@v6
         with:
@@ -18,19 +24,32 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: "22.19.0"
+          node-version: "24"
 
-      - name: Validate commits with commitlint
+      - name: Cache conventional-commit-msg download
+        uses: actions/cache@v5
+        with:
+          path: ~/.npm
+          key: npm-conventional-commit-msg-${{ env.COMMITLINT_PACKAGE_VERSION }}
+
+      - name: Validate commit messages with commitlint
+        # A squash merge (the default) lands the PR title as main's subject; a
+        # rebase merge lands the PR's commits. Validate both so semantic-release
+        # never sees an unparseable subject on main.
         shell: bash
+        env:
+          # Pass the attacker-controllable PR title via env, never inline in run: (script injection).
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           set -euo pipefail
 
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            npm exec --yes --package=conventional-commit-msg@latest -- \
-              conventional-commit-msg \
-              --from "${{ github.event.pull_request.base.sha }}" \
-              --to "${{ github.event.pull_request.head.sha }}"
-          else
-            npm exec --yes --package=conventional-commit-msg@latest -- \
-              conventional-commit-msg --last
-          fi
+          # Squash: the PR title becomes main's subject.
+          printf '%s\n' "$PR_TITLE" \
+            | npm exec --yes --package=conventional-commit-msg@${COMMITLINT_PACKAGE_VERSION} -- \
+              conventional-commit-msg
+
+          # Rebase: the PR's individual commits land on main.
+          npm exec --yes --package=conventional-commit-msg@${COMMITLINT_PACKAGE_VERSION} -- \
+            conventional-commit-msg \
+            --from "${{ github.event.pull_request.base.sha }}" \
+            --to "${{ github.event.pull_request.head.sha }}"

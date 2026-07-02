@@ -2,7 +2,18 @@
 # Native Git hook - enable with: git config core.hooksPath .githooks
 set -euo pipefail
 
-git diff --cached --check
+ignored_staged_paths=(
+  ":(exclude).agents/**"
+  ":(exclude).claude/**"
+  ":(exclude).clawpatch/**"
+  ":(exclude).codex/**"
+)
+
+git diff --cached --check -- . "${ignored_staged_paths[@]}"
+
+if git diff --cached --quiet -- . "${ignored_staged_paths[@]}"; then
+  exit 0
+fi
 
 if command -v cargo >/dev/null 2>&1; then
   cargo fmt --all --check
