@@ -1,6 +1,6 @@
 # Rule: Mandatory Startup Reads
 
-Before taking any action, read @README.md for project overview and context. If it does not exist, skip silently and continue.
+Before taking any action, read @README.md for project context.
 
 # Rule: `askpplx` CLI Usage
 
@@ -64,11 +64,11 @@ const description = raw.slice(0, 500);
 
 # Rule: Early Returns
 
-Handle edge cases and invalid states at the top of a function with guard clauses that return early. Invert conditions and exit immediately—null checks, permission checks, validation, empty collections. Main logic stays at the top level with minimal indentation.
+Handle edge cases and invalid states at the top of a function with guard clauses that return early. Invert conditions and exit immediately: null checks, permission checks, validation, empty collections. Main logic stays at the top level with minimal indentation.
 
 # Rule: File Naming Matches Contents
 
-Name files for what the module actually does. Use kebab-case and prefer verb-noun or domain-role names. Match the primary export; if you cannot name it crisply, split the file.
+Name files for what the module does. Use kebab-case and prefer verb-noun or domain-role names. Match the primary export; if you cannot name it crisply, split the file.
 
 ## Checklist
 
@@ -104,61 +104,18 @@ function sendUserExpiryEmail(): void {
 
 // Good: Functional core (pure, testable)
 function getExpiredUsers(users: User[], cutoff: Date): User[] {
-  return users.filter(
-    (user) => user.subscriptionEndDate <= cutoff && !user.isFreeTrial,
-  );
+  return users.filter((user) => user.subscriptionEndDate <= cutoff && !user.isFreeTrial);
 }
 
 function generateExpiryEmails(users: User[]): Array<[string, string]> {
-  return users.map((user) => [
-    user.email,
-    `Your account has expired ${user.name}.`,
-  ]);
+  return users.map((user) => [user.email, `Your account has expired ${user.name}.`]);
 }
 
 // Imperative shell (orchestrates side effects)
-email.bulkSend(
-  generateExpiryEmails(getExpiredUsers(db.getUsers(), new Date())),
-);
+email.bulkSend(generateExpiryEmails(getExpiredUsers(db.getUsers(), new Date())));
 ```
 
 Test the functional core, not the shell. Core tests are fast, deterministic, and need no mocks; the shell becomes thin orchestration where bugs are easy to spot through review. If shell tests are explicitly requested, prefer integration tests over unit tests with mocks.
-
-# Rule: Inline Obvious Code
-
-Keep simple, self-explanatory code inline rather than extracting it into functions. Every abstraction carries cognitive cost—readers must jump to another location, parse a signature, and track context. For obvious logic, this overhead exceeds any benefit.
-
-Extracting code into a function is not inherently virtuous. A function should exist because it encapsulates meaningful complexity, not because code appears twice.
-
-```ts
-// GOOD: Inline obvious logic
-if (removedFrom.length === 0) {
-  return { ok: true, message: "No credentials found" };
-}
-return { ok: true, message: `Removed from ${removedFrom.join(" and ")}` };
-
-// BAD: Extraction hides obvious logic behind indirection
-return formatRemovalResult(removedFrom);
-```
-
-## When to extract
-
-Extract when duplication causes real maintenance risk, not merely because code appears twice:
-
-- A name clarifies complex intent
-- Multiple call sites must stay in lockstep and silent divergence would be a bug
-- The function encapsulates a coherent standalone concept
-- Testing it in isolation provides value
-
-Don't extract for hypothetical reuse:
-
-- For a single caller
-- Because "we might need this elsewhere"
-- When the name describes implementation rather than purpose
-
-## The wrong abstraction
-
-Abstractions decay when requirements diverge: programmer A extracts duplication into a shared function, programmer B adds a parameter for different behavior, and this repeats until the "abstraction" is a mess of conditionals. When an abstraction proves wrong, re-introduce duplication and let the code show you what's actually shared. Duplication is far cheaper than the wrong abstraction.
 
 # Rule: No Logic in Tests
 
@@ -177,19 +134,6 @@ expect(getPhotosUrl()).toBe("http://example.com/photos"); // fails, reveals the 
 Unlike production code that handles varied inputs, tests verify specific cases. State expectations directly rather than computing them. When a test fails, the expected value should be immediately readable without mental evaluation.
 
 Use test utilities for setup and data preparation—fixtures, builders, factories, mock configuration—but never for computing expected values. Keep assertion logic in the test body with literal expectations.
-
-# Rule: Package Manager Execution
-
-How different package manager commands resolve binaries:
-
-| Command           | Behavior                                                                |
-| ----------------- | ----------------------------------------------------------------------- |
-| `pnpm exec foo`   | Runs from `./node_modules/.bin`; falls back to system PATH              |
-| `pnpx foo`        | Always fetches from registry (uses dlx cache); ignores local installs   |
-| `npx foo`         | Checks local `node_modules/.bin` → global → downloads from registry     |
-| `npx foo@version` | Resolves version, uses local if exact match exists, otherwise downloads |
-
-`pnpx` is an alias for `pnpm dlx`.
 
 # Rule: Parse, Don't Validate
 
@@ -234,7 +178,7 @@ type PositiveInt = z.infer<typeof PositiveInt>;
 
 # Rule: Use `repoq` for Repository Queries
 
-Use `repoq` for reading repository state instead of piping `git`/`gh` through `awk`/`jq`/`grep`. Each command handles edge cases (detached HEAD, unborn branches, missing auth) and returns validated JSON. Use raw `git`/`gh` for mutations (commit, push, merge). Run `npx -y repoq --help` if unsure of the available subcommands.
+Use `repoq` for reading repository state instead of piping `git` or the forge CLI through `awk`/`jq`/`grep`. Each command handles edge cases (detached HEAD, unborn branches, missing auth) and returns validated JSON. Use raw `git` for commit/push/merge, and the repo's forge CLI for forge-side mutations (PRs, issues, releases) — `gh` for GitHub or `fgj` for Forgejo, per the detected provider. Run `npx -y repoq --help` if unsure of the available subcommands.
 
 # Rule: Cargo Dependency Updates
 
