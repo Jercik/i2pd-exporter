@@ -16,3 +16,4 @@
 
 # Debug files
 *.pdb
+.claude/worktrees/
