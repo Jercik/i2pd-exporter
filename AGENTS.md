@@ -6,6 +6,178 @@ Before taking any action, read @README.md for project context.
 
 Use `askpplx` for real-time web search via Perplexity. Verify external facts—documentation, API behavior, library versions, best practices—before acting on them. A lookup costs far less than debugging hallucinated code. Run `npx -y askpplx --help` if unsure of the available options.
 
+# Rule: Safe Command Execution
+
+## Store commands in arrays, not strings
+
+When Bash expands a string variable, quotes inside become literal characters and whitespace triggers word splitting:
+
+```bash
+# BAD: quotes are literal, spaces split words
+CMD="echo \"hello world\""
+$CMD  # outputs: "hello world" (with literal quotes)
+
+# GOOD: array preserves argument boundaries
+CMD=(echo "hello world")
+"${CMD[@]}"  # outputs: hello world
+```
+
+## Never interpolate variables into shell strings
+
+Variables interpolated into shell strings — `sh -c`, `bash -c`, `eval`, `ssh host` — are reparsed by the shell. Characters like `$(...)`, backticks, or `;` in the value execute as code, a classic injection vector:
+
+```bash
+# BAD: if VAR contains $(malicious), it executes
+sh -c "$VAR --write"
+
+# GOOD: direct execution, no shell interpretation
+"${CMD[@]}" --write
+
+# GOOD: with xargs, execute the array directly
+find . -name '*.js' -print0 | xargs -0 "${CMD[@]}" --write --
+```
+
+When you need shell features (pipes, redirects), use the `exec "$@"` pattern to pass arguments as positional parameters instead of interpolating them:
+
+```bash
+# GOOD: arguments passed as $@, not interpolated into the string
+xargs -0 sh -c 'exec "$@"' _ "${CMD[@]}" --write --
+```
+
+The `_` occupies `$0` (the script name), leaving `$@` for the command and arguments. Any string works as the placeholder; `_` is conventional.
+
+# Rule: External UID Pattern
+
+Do not create users inside container images. Let the orchestrator (Podman Quadlet, Kubernetes, docker-compose) specify the UID and GID the container runs as.
+
+This keeps images portable across Docker, Podman, and Kubernetes without runtime-specific flags. Kubernetes clusters that enforce Pod Security Standards or OPA Gatekeeper can require arbitrary UIDs; a hardcoded `USER` in the image breaks this. Images also stay smaller (no shadow/passwd utilities) and avoid UID collisions across systems.
+
+## Pattern to avoid
+
+```dockerfile
+# BAD: Creates internal user, couples image to a specific UID
+RUN groupadd -r myapp && useradd -r -g myapp myapp
+USER myapp
+```
+
+This may require Podman's `:U` volume flag (not portable to Docker), causes ownership conflicts when the orchestrator specifies a different UID, and complicates debugging.
+
+## Recommended
+
+Use a distroless or minimal base image without `USER`:
+
+```dockerfile
+FROM gcr.io/distroless/base-debian12:latest AS final
+# Pin to digest for production: FROM gcr.io/distroless/base-debian12@sha256:...
+COPY --from=builder /app/binary /usr/bin/myapp
+ENTRYPOINT ["/usr/bin/myapp"]
+```
+
+For Node.js:
+
+```dockerfile
+FROM docker.io/library/node:22-bookworm-slim AS runtime
+WORKDIR /app
+COPY --from=build /app/dist ./dist
+COPY --from=build /app/node_modules ./node_modules
+ENTRYPOINT ["node", "dist/index.js"]
+```
+
+Without `USER`, containers run as root (UID 0) by default. The orchestrator must set a non-root UID and GID.
+
+## Orchestrator configuration
+
+Podman Quadlet:
+
+```ini
+[Container]
+User=1100
+Group=1100
+Volume=/var/lib/myapp:/data:rw
+```
+
+Kubernetes (pod-level `securityContext`):
+
+```yaml
+securityContext:
+  runAsUser: 1100
+  runAsGroup: 1100
+  runAsNonRoot: true
+  fsGroup: 1100
+```
+
+docker-compose:
+
+```yaml
+services:
+  myapp:
+    user: "1100:1100"
+    volumes:
+      - ./data:/data
+```
+
+## Ansible host user setup
+
+Create the host user with a deterministic UID matching the orchestrator configuration, then reference it in Quadlet:
+
+```yaml
+- name: Create myapp group
+  ansible.builtin.group:
+    name: myapp
+    gid: 1100
+
+- name: Create myapp user
+  ansible.builtin.user:
+    name: myapp
+    uid: 1100
+    group: myapp
+
+- name: Create data directory
+  ansible.builtin.file:
+    path: /var/lib/myapp
+    state: directory
+    owner: myapp
+    group: myapp
+    mode: "0750"
+```
+
+# Rule: Prefer Debian Slim Over Alpine Base Images
+
+Use `-slim` Debian variants (e.g. `node:22-bookworm-slim`, `python:3.12-slim-bookworm`) as container base images — Alpine's musl libc breaks glibc prebuilt binaries and forces native-module rebuilds, and the base-image size savings vanish once app dependencies land.
+
+# Rule: Prefer OCI Images
+
+Build and distribute container images in OCI format rather than Docker format. OCI is the open industry standard, supported by every modern container tool. The OCI image spec derived from Docker v2 schema 2, but OCI avoids vendor lock-in.
+
+## Building
+
+**Docker Buildx/BuildKit.** Docker Desktop 4.31+ defaults to OCI media types. For older versions, set `oci-mediatypes=true` explicitly:
+
+```bash
+docker buildx build \
+  --output type=image,name=REG/IMG:TAG,push=true,oci-mediatypes=true \
+  .
+```
+
+Export as an OCI layout tarball:
+
+```bash
+docker buildx build --output type=oci,dest=img.oci.tar .
+```
+
+**Podman/Buildah.** OCI is the default. Pass `--format oci` to force it explicitly.
+
+## Verifying
+
+```bash
+skopeo inspect --raw docker://REG/IMG:TAG | jq -r .mediaType
+```
+
+| Format | Single-arch manifest                                   | Multi-arch index                                            |
+| ------ | ------------------------------------------------------ | ----------------------------------------------------------- |
+| OCI    | `application/vnd.oci.image.manifest.v1+json`           | `application/vnd.oci.image.index.v1+json`                   |
+| Docker | `application/vnd.docker.distribution.manifest.v2+json` | `application/vnd.docker.distribution.manifest.list.v2+json` |
+
 # Rule: Avoid Leaky Abstractions
 
 Design interfaces around what callers need, not how the system works internally. An abstraction is leaky when using it correctly requires knowledge of underlying storage, infrastructure, or error behavior. Keep signatures consistent, return domain types instead of backend artifacts, and inject infrastructure dependencies through constructors rather than method parameters.
@@ -178,7 +350,7 @@ type PositiveInt = z.infer<typeof PositiveInt>;
 
 # Rule: Use `repoq` for Repository Queries
 
-Use `repoq` for reading repository state instead of piping `git` or the forge CLI through `awk`/`jq`/`grep`. Each command handles edge cases (detached HEAD, unborn branches, missing auth) and returns validated JSON. Use raw `git` for commit/push/merge, and the repo's forge CLI for forge-side mutations (PRs, issues, releases) — `gh` for GitHub or `fgj` for Forgejo, per the detected provider. Run `npx -y repoq --help` if unsure of the available subcommands.
+Use `repoq` for reading repository state instead of piping `git` or the forge CLI through `awk`/`jq`/`grep`. Each command handles edge cases (detached HEAD, unborn branches, missing auth) and returns validated JSON. Use raw `git` for commit/push/merge, and the repo's forge CLI for forge-side mutations (PRs, issues, releases) — `gh` for GitHub or `fgj` for Forgejo, per the detected provider. Run `npx -y repoq@latest --help` if unsure of the available subcommands; the explicit tag prevents `npx` from reusing a stale cached release.
 
 # Rule: Cargo Dependency Updates
 
