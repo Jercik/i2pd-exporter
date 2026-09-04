@@ -3,10 +3,12 @@
 set -euo pipefail
 
 ignored_staged_paths=(
-  ":(exclude).agents/**"
   ":(exclude).claude/**"
   ":(exclude).clawpatch/**"
   ":(exclude).codex/**"
+  ":(exclude).agents/rules/**"
+  ":(exclude).agents/*.md"
+  ":(exclude).agents/**/*.md"
 )
 
 git diff --cached --check -- . "${ignored_staged_paths[@]}"
