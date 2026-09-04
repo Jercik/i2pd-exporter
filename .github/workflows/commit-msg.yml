@@ -16,6 +16,16 @@ jobs:
     timeout-minutes: 5
     env:
       COMMITLINT_PACKAGE_VERSION: "1.0.3"
+      # npm's fetch-timeout defaults to 300s — exactly this job's cap — so one
+      # stalled request eats the whole budget in silence and the job is killed
+      # before npm's own retry ever fires. Observed as five consecutive 5m00s
+      # timeouts across align and cluster while the same install took 6s when
+      # it worked. Bounding the request keeps the retries useful and turns the
+      # tail from minutes into seconds; the cap below then means what it says.
+      npm_config_fetch_timeout: "30000"
+      npm_config_fetch_retries: "3"
+      npm_config_fetch_retry_mintimeout: "1000"
+      npm_config_fetch_retry_maxtimeout: "10000"
     steps:
       - uses: actions/checkout@v6
         with:
@@ -24,7 +34,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: "24"
+          # Deliberately policy-pinned: this workflow runs only a version-pinned npm package and takes no toolchain input from the PR tree — the template, not node-version-file, supplies the fleet baseline.
+          node-version: "26.5.0"
 
       - name: Cache conventional-commit-msg download
         uses: actions/cache@v5
