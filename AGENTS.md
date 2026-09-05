@@ -1,19 +1,15 @@
-# Rule: Mandatory Startup Reads
+# Rule: Read the Startup Files First
 
-Before taking any action, read @README.md for project context.
+Before taking any action, read @README.md.
 
-# Rule: `askpplx` CLI Usage
-
-Use `askpplx` for real-time web search via Perplexity. Verify external facts—documentation, API behavior, library versions, best practices—before acting on them. A lookup costs far less than debugging hallucinated code. Run `npx -y askpplx --help` if unsure of the available options.
-
-# Rule: Safe Command Execution
+# Rule: Execute Commands from Arrays, Not Strings
 
 ## Store commands in arrays, not strings
 
 When Bash expands a string variable, quotes inside become literal characters and whitespace triggers word splitting:
 
 ```bash
-# BAD: quotes are literal, spaces split words
+# BAD
 CMD="echo \"hello world\""
 $CMD  # outputs: "hello world" (with literal quotes)
 
@@ -24,7 +20,7 @@ CMD=(echo "hello world")
 
 ## Never interpolate variables into shell strings
 
-Variables interpolated into shell strings — `sh -c`, `bash -c`, `eval`, `ssh host` — are reparsed by the shell. Characters like `$(...)`, backticks, or `;` in the value execute as code, a classic injection vector:
+Variables interpolated into shell strings — `sh -c`, `bash -c`, `eval`, `ssh host` — are reparsed by the shell. Characters like `$(...)`, backticks, or `;` in the value execute as code — an injection vector:
 
 ```bash
 # BAD: if VAR contains $(malicious), it executes
@@ -40,50 +36,27 @@ find . -name '*.js' -print0 | xargs -0 "${CMD[@]}" --write --
 When you need shell features (pipes, redirects), use the `exec "$@"` pattern to pass arguments as positional parameters instead of interpolating them:
 
 ```bash
-# GOOD: arguments passed as $@, not interpolated into the string
-xargs -0 sh -c 'exec "$@"' _ "${CMD[@]}" --write --
+# GOOD: arguments passed as $@, not interpolated into the string; the redirect is why sh -c is needed
+find . -name '*.js' -print0 | xargs -0 sh -c 'exec "$@" >> format.log 2>&1' _ "${CMD[@]}" --write --
 ```
 
-The `_` occupies `$0` (the script name), leaving `$@` for the command and arguments. Any string works as the placeholder; `_` is conventional.
+The `_` occupies `$0` (the script name), leaving `$@` for the command and arguments.
 
-# Rule: External UID Pattern
+# Rule: Prefer Debian Slim Over Alpine Base Images
 
-Do not create users inside container images. Let the orchestrator (Podman Quadlet, Kubernetes, docker-compose) specify the UID and GID the container runs as.
+Use `-slim` Debian variants (e.g. `node:26-bookworm-slim`, `python:3.12-slim-bookworm`) as container base images — Alpine's musl libc breaks glibc prebuilt binaries and forces native-module rebuilds, and the base-image size savings become marginal once app dependencies land.
 
-This keeps images portable across Docker, Podman, and Kubernetes without runtime-specific flags. Kubernetes clusters that enforce Pod Security Standards or OPA Gatekeeper can require arbitrary UIDs; a hardcoded `USER` in the image breaks this. Images also stay smaller (no shadow/passwd utilities) and avoid UID collisions across systems.
+# Rule: Set the Container UID in the Orchestrator, Not the Image
 
-## Pattern to avoid
+Do not create users inside container images. Let the orchestrator (Podman Quadlet, Kubernetes, docker-compose) specify the non-root UID and GID the container runs as. A hardcoded `USER` couples the image to one UID: clusters enforcing Pod Security Standards or OPA Gatekeeper can require arbitrary UIDs, and an orchestrator-assigned UID that differs from the image's causes volume-ownership conflicts Podman papers over with the non-portable `:U` volume flag.
 
 ```dockerfile
-# BAD: Creates internal user, couples image to a specific UID
+# BAD
 RUN groupadd -r myapp && useradd -r -g myapp myapp
 USER myapp
 ```
 
-This may require Podman's `:U` volume flag (not portable to Docker), causes ownership conflicts when the orchestrator specifies a different UID, and complicates debugging.
-
-## Recommended
-
-Use a distroless or minimal base image without `USER`:
-
-```dockerfile
-FROM gcr.io/distroless/base-debian12:latest AS final
-# Pin to digest for production: FROM gcr.io/distroless/base-debian12@sha256:...
-COPY --from=builder /app/binary /usr/bin/myapp
-ENTRYPOINT ["/usr/bin/myapp"]
-```
-
-For Node.js:
-
-```dockerfile
-FROM docker.io/library/node:22-bookworm-slim AS runtime
-WORKDIR /app
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/node_modules ./node_modules
-ENTRYPOINT ["node", "dist/index.js"]
-```
-
-Without `USER`, containers run as root (UID 0) by default. The orchestrator must set a non-root UID and GID.
+Write the runtime stage without a `USER` instruction.
 
 ## Orchestrator configuration
 
@@ -96,100 +69,13 @@ Group=1100
 Volume=/var/lib/myapp:/data:rw
 ```
 
-Kubernetes (pod-level `securityContext`):
+Kubernetes sets the same thing through the pod-level `securityContext` (`runAsUser`, `runAsGroup`, `runAsNonRoot`, `fsGroup`); docker-compose through `user: "1100:1100"`.
 
-```yaml
-securityContext:
-  runAsUser: 1100
-  runAsGroup: 1100
-  runAsNonRoot: true
-  fsGroup: 1100
-```
-
-docker-compose:
-
-```yaml
-services:
-  myapp:
-    user: "1100:1100"
-    volumes:
-      - ./data:/data
-```
-
-## Ansible host user setup
-
-Create the host user with a deterministic UID matching the orchestrator configuration, then reference it in Quadlet:
-
-```yaml
-- name: Create myapp group
-  ansible.builtin.group:
-    name: myapp
-    gid: 1100
-
-- name: Create myapp user
-  ansible.builtin.user:
-    name: myapp
-    uid: 1100
-    group: myapp
-
-- name: Create data directory
-  ansible.builtin.file:
-    path: /var/lib/myapp
-    state: directory
-    owner: myapp
-    group: myapp
-    mode: "0750"
-```
-
-# Rule: Prefer Debian Slim Over Alpine Base Images
-
-Use `-slim` Debian variants (e.g. `node:22-bookworm-slim`, `python:3.12-slim-bookworm`) as container base images — Alpine's musl libc breaks glibc prebuilt binaries and forces native-module rebuilds, and the base-image size savings vanish once app dependencies land.
-
-# Rule: Prefer OCI Images
-
-Build and distribute container images in OCI format rather than Docker format. OCI is the open industry standard, supported by every modern container tool. The OCI image spec derived from Docker v2 schema 2, but OCI avoids vendor lock-in.
-
-## Building
-
-**Docker Buildx/BuildKit.** Docker Desktop 4.31+ defaults to OCI media types. For older versions, set `oci-mediatypes=true` explicitly:
-
-```bash
-docker buildx build \
-  --output type=image,name=REG/IMG:TAG,push=true,oci-mediatypes=true \
-  .
-```
-
-Export as an OCI layout tarball:
-
-```bash
-docker buildx build --output type=oci,dest=img.oci.tar .
-```
-
-**Podman/Buildah.** OCI is the default. Pass `--format oci` to force it explicitly.
-
-## Verifying
-
-```bash
-skopeo inspect --raw docker://REG/IMG:TAG | jq -r .mediaType
-```
-
-| Format | Single-arch manifest                                   | Multi-arch index                                            |
-| ------ | ------------------------------------------------------ | ----------------------------------------------------------- |
-| OCI    | `application/vnd.oci.image.manifest.v1+json`           | `application/vnd.oci.image.index.v1+json`                   |
-| Docker | `application/vnd.docker.distribution.manifest.v2+json` | `application/vnd.docker.distribution.manifest.list.v2+json` |
+On the host, create the user and group with the same deterministic UID/GID the orchestrator specifies (`ansible.builtin.user`/`group` with explicit `uid:`/`gid:`), and give bind-mounted data directories that owner.
 
 # Rule: Avoid Leaky Abstractions
 
-Design interfaces around what callers need, not how the system works internally. An abstraction is leaky when using it correctly requires knowledge of underlying storage, infrastructure, or error behavior. Keep signatures consistent, return domain types instead of backend artifacts, and inject infrastructure dependencies through constructors rather than method parameters.
-
-## Warning signs
-
-- Inconsistent method signatures that reflect backend differences
-- Infrastructure details (connection strings, transaction handles) exposed in the interface
-- Large performance differences between similar operations
-- Errors that force callers to understand underlying layers
-
-## Example
+Design interfaces around what callers need, not how the system works internally. An abstraction is leaky when using it correctly requires knowledge of underlying storage, infrastructure, or error behavior — a connection string in a method signature, a transaction handle in a return type, an error that only makes sense one layer down, or two similar-looking methods where one reads memory and the other crosses the network. Keep signatures consistent, return domain types instead of backend artifacts, and inject infrastructure dependencies through constructors rather than method parameters.
 
 ```ts
 // Leaky: exposes database concerns, inconsistent signatures
@@ -199,7 +85,9 @@ interface ReservationRepository {
   update(reservation: Reservation): void;
   connect(connectionString: string): void;
 }
+```
 
+```ts
 // Better: consistent interface, infrastructure hidden, injected via constructor
 interface ReservationRepository {
   create(restaurantId: number, draft: NewReservation): Promise<Reservation>;
@@ -208,110 +96,121 @@ interface ReservationRepository {
 }
 ```
 
+# Rule: Build for Requirements That Exist Today
+
+Implement what the current requirement needs, nothing more. Speculative surface must be maintained, tested, and reasoned about until someone deletes it — and because the code that carries it references it, no unused-code tool will ever flag it; only authoring discipline stops it.
+
+- No defensive handling for states the types already exclude: the null-check on a non-nullable value, the `catch` around code that cannot throw. Exhaustiveness guards (`assertNever`, `satisfies never`) are the opposite shape — they make an impossible state fail loudly instead of flowing on — and they stay.
+- No parameter or option no caller passes — including one a default keeps compiling, like a `{ retries = 3 }` read in the body that every call site leaves at 3. A published CLI or library's callers are external: its documented public interface is a current requirement, never speculative surface.
+- No abstraction justified only by a hypothetical second use: an interface with one implementation that hides nothing, a registry with one entry, indirection added "for flexibility". Extracting a single-use pure function into the functional core is not this — the extraction pays now, in testability, and the functional-core and file-naming rules ask for it.
+- No generality justified only by a future requirement — when the requirement arrives, designing for the real case beats having guessed. The one inversion is a format that locks at its first real reader (a wire format, a stored blob, a published API shape): a locked, versionless format is the one guess that cannot be cheaply corrected, so design its evolution path — a `version` field — up front.
+
 # Rule: Comments Explain Why, Not What
 
-Default to writing no comments. Only add one when the WHY is non-obvious — a hidden constraint, a subtle invariant, a workaround for a specific bug, behavior that would surprise a reader. If removing the comment wouldn't confuse a future reader, don't write it.
+Default to writing no comments. Add one only to capture what the code cannot show — a hidden constraint, a subtle invariant, why a decision was made, which alternatives were rejected, what external factor forced a workaround — the context that stops the next person from "cleaning up" something load-bearing.
 
-When a comment is warranted, capture intent, constraints, and reasoning the code cannot show: why a decision was made, which alternatives were rejected, what external factor forced a workaround. That's what future readers cannot recover from the code alone, and it stops the next person from "cleaning up" something load-bearing.
+Never explain what the code does. Names convey purpose, types convey shape, the code itself conveys behavior. Never reference the current task, fix, or callers ("used by X", "added for the Y flow", "handles the case from issue #123") — those belong in the PR description and rot as the codebase evolves.
 
-Never explain WHAT the code does. Names convey purpose, types convey shape, the code itself conveys behavior. Never reference the current task, fix, or callers ("used by X", "added for the Y flow", "handles the case from issue #123") — those belong in the PR description and rot as the codebase evolves. Don't add comments, docstrings, or type annotations to code you didn't change.
-
-Keep comments to one short line. Never write multi-paragraph docstrings or multi-line comment blocks.
+Keep the comments you write — docstrings included — to one short line; an example snippet already living in a docstring is documentation to keep type-checking, not a comment to trim.
 
 ```ts
-// BAD: restates what the code says
-// Increment counter by 1
-counter += 1;
-
 // BAD: references caller context that will rot
 // Used by the checkout flow after the Stripe webhook fires
-function markOrderPaid(orderId: string) {
+function markOrderPaid(orderId: string): void {
   /* ... */
 }
 
 // GOOD: records a non-obvious external constraint
-// Stripe rejects descriptions over 500 chars; truncate defensively
-const description = raw.slice(0, 500);
+// Stripe caps statement descriptors at 22 chars
+const statementDescriptor = raw.slice(0, 22);
 ```
 
-# Rule: Early Returns
+# Rule: Prefer Deep Modules
 
-Handle edge cases and invalid states at the top of a function with guard clauses that return early. Invert conditions and exit immediately: null checks, permission checks, validation, empty collections. Main logic stays at the top level with minimal indentation.
+A module earns its place by what it hides behind an interface smaller than the implementation it covers: a decision, a side effect, a detail callers no longer carry. Judge every extraction and every layer by that ratio of interface to implementation. The deletion test settles close calls: if removing the module would scatter the same knowledge across its callers, it is earning its keep; if the complexity would simply vanish, it is a pass-through.
+
+- Never split a function or file because it is long; split for what the split hides or separates — a decision the caller need not know, a side effect kept out of the functional core.
+- If understanding a caller requires repeatedly reading a callee's body, that boundary hides nothing: inline it or redesign the interface.
+- A wrapper that only forwards calls adds surface without hiding anything; use the wrapped thing directly. An interface that hides infrastructure behind domain-shaped methods is the opposite case — that is depth.
+- In production code, one general operation serving all current callers beats several near-duplicate special-case ones.
+
+# Rule: Design Contracts Twice
+
+The shape that ships first is usually just the first one that worked, and some shapes are expensive to revisit once anything depends on them: a CLI surface, a stored or wire format, JSON output that automation parses, a package's public API. Before committing to such a contract, sketch a second, meaningfully different shape and compare the two on what each asks of callers: what they must know to use it correctly, and what they can get wrong silently. Prefer the shape that keeps required knowledge small while misuse stays loud — still failing a compile, a parse, or a run. Record the winner and the loser in a sentence or two where rejected alternatives already belong — the pull request description, or a one-line comment when the code alone would not explain the choice.
+
+Skip the sketch when the shape is dictated rather than chosen — a schema mirroring a format some other producer defines, or a surface an existing convention already fixes.
 
 # Rule: File Naming Matches Contents
 
-Name files for what the module does. Use kebab-case and prefer verb-noun or domain-role names. Match the primary export; if you cannot name it crisply, split the file.
+Name files for what the module does: kebab-case, verb-noun or domain-role names, matching the primary export — `calculateUsageRate` goes in `calculate-usage-rate.ts`.
 
 ## Checklist
 
-- Match the main export: `calculateUsageRate` goes in `calculate-usage-rate.ts`.
-- One responsibility per file; if you need two verbs, split it.
+- One responsibility per file; if the name needs two verbs, split it.
 - Align with functional core/imperative shell conventions:
   - Functional core: `calculate-…`, `validate-…`, `parse-…`, `format-…`, `aggregate-…`
   - Imperative shell: `…-route.ts`, `…-handler.ts`, `…-job.ts`, `…-cli.ts`, `…-script.ts`
-- Prefer specific domain nouns; avoid generic buckets like `utils`, `helpers`, `core`, `data`, `math`.
+- Prefer specific domain nouns; avoid generic bucket file names like `utils`, `helpers`, `core`, `data`, `math`.
 - Use role suffixes (`-service`, `-repository`) only when they clarify architecture.
 
 Example: A file named `usage.core.ts` containing both fetching and aggregation logic should be split into `fetch-service-usage.ts` and `aggregate-usage.ts`.
 
-# Rule: Functional Core, Imperative Shell
+# Rule: Separate the Functional Core from the Imperative Shell
 
-Separate business logic from side effects by organizing code into a functional core and an imperative shell. The functional core contains pure functions that operate only on provided data, free of I/O, database calls, or state mutations. The imperative shell handles all side effects and orchestrates the core to perform work.
+Separate business logic from side effects by organizing code into a functional core and an imperative shell. The functional core contains pure functions that operate only on provided data, free of I/O, database calls, or state mutations. The imperative shell handles all side effects and orchestrates the core.
 
-This separation improves testability (core logic tests need no mocks), maintainability (shell can change without touching business rules), and reusability (core functions work in any context).
+The payoff: the shell can change — a different database, queue, or framework — without touching business rules, and core functions work in any context. When unsure where a function belongs, ask what its test would need: a mock, a database, or a clock means shell; plain values mean core.
 
 **Functional core:** filtering, mapping, calculations, validation, parsing, formatting, business rule evaluation.
 
 **Imperative shell:** HTTP handlers, database queries, file I/O, API calls, message queue operations, CLI entry points.
 
 ```ts
-// Bad: Logic and side effects mixed
+// BAD: Logic and side effects mixed
 function sendUserExpiryEmail(): void {
   for (const user of db.getUsers()) {
     if (user.subscriptionEndDate > new Date()) continue;
     if (user.isFreeTrial) continue;
-    email.send(user.email, `Your account has expired ${user.name}.`);
+    email.send(user.email, `Your account has expired, ${user.name}.`);
   }
 }
 
-// Good: Functional core (pure, testable)
+// GOOD: Functional core (pure, testable)
 function getExpiredUsers(users: User[], cutoff: Date): User[] {
   return users.filter((user) => user.subscriptionEndDate <= cutoff && !user.isFreeTrial);
 }
 
 function generateExpiryEmails(users: User[]): Array<[string, string]> {
-  return users.map((user) => [user.email, `Your account has expired ${user.name}.`]);
+  return users.map((user) => [user.email, `Your account has expired, ${user.name}.`]);
 }
 
 // Imperative shell (orchestrates side effects)
 email.bulkSend(generateExpiryEmails(getExpiredUsers(db.getUsers(), new Date())));
 ```
 
-Test the functional core, not the shell. Core tests are fast, deterministic, and need no mocks; the shell becomes thin orchestration where bugs are easy to spot through review. If shell tests are explicitly requested, prefer integration tests over unit tests with mocks.
+Test the functional core, not the shell. Core tests are fast, deterministic, and need no mocks; the shell becomes thin orchestration where bugs are easy to spot through review. If shell tests are requested, prefer integration tests over unit tests with mocks.
 
 # Rule: No Logic in Tests
 
-Write test assertions as concrete input/output examples, not computed values. Avoid operators, string concatenation, loops, and conditionals in test bodies—these obscure bugs and make tests harder to verify at a glance.
+Write test assertions as concrete input/output examples, not computed values — unlike production code that handles varied inputs, tests verify specific cases. Avoid operators, string concatenation, loops, and conditionals in test bodies — these obscure bugs.
 
 ```ts
 const baseUrl = "http://example.com/";
 
-// Bad: computed expectation hides bugs when test and production share the same error
+// BAD: computed expectation hides bugs when test and production share the same error
 expect(getPhotosUrl()).toBe(baseUrl + "/photos"); // passes despite double-slash bug
 
-// Good: literal expected value catches the bug immediately
+// GOOD: literal expected value catches the bug immediately
 expect(getPhotosUrl()).toBe("http://example.com/photos"); // fails, reveals the issue
 ```
 
-Unlike production code that handles varied inputs, tests verify specific cases. State expectations directly rather than computing them. When a test fails, the expected value should be immediately readable without mental evaluation.
-
-Use test utilities for setup and data preparation—fixtures, builders, factories, mock configuration—but never for computing expected values. Keep assertion logic in the test body with literal expectations.
+Use test utilities for setup and data preparation — fixtures, builders, factories, mock configuration — but never for computing expected values.
 
 # Rule: Parse, Don't Validate
 
-When checking input data, return a refined type that preserves the knowledge gained—don't just validate and discard. Validation functions that return `void` or throw errors force callers to re-check conditions or handle "impossible" cases. Parsing functions that return more precise types eliminate redundant checks and let the compiler catch inconsistencies.
+When checking input data, return a refined type that preserves the knowledge gained — don't just validate and discard. Validation functions that return `void` or a bare `boolean` force callers to re-check conditions or handle "impossible" cases the compiler could rule out — and a check whose result nothing consumes is easy to forget entirely.
 
-Zod embodies this principle: every schema is a parser that transforms `unknown` input into a typed output. Use Zod at system boundaries to parse external data into domain types.
+Zod embodies this principle: every schema is a parser from `unknown` input to a typed output. Use it at system boundaries to convert external input — JSON, environment variables, API responses — into domain types early.
 
 ```ts
 import * as z from "zod";
@@ -325,37 +224,41 @@ const User = z.object({
 
 type User = z.infer<typeof User>;
 
-// Parse at the boundary - downstream code receives typed data
+// Parse at the boundary — downstream code receives typed data
 function handleRequest(body: unknown): User {
   return User.parse(body); // throws ZodError if invalid
 }
 ```
 
-## Practical guidance
-
-- **Parse at system boundaries.** Convert external input (JSON, environment variables, API responses) to precise domain types early. Use `.parse()` or `.safeParse()`.
 - **Strengthen argument types.** Instead of accepting `T | undefined`, require callers to provide already-parsed data.
-- **Let schemas encode constraints.** If a function needs a non-empty array, positive number, or valid email, define a schema that encodes that guarantee.
-- **Treat `void`-returning checks with suspicion.** A function that validates but returns nothing is easy to forget.
-- **Use `.refine()` for custom constraints.** When built-in validators aren't enough, add refinements that preserve type information.
+- **Let schemas encode constraints.** If a function needs a non-empty array, positive number, or valid email, define a schema that guarantees it.
+
+# Rule: Test What Matters
+
+Write tests where failure is expensive and the test can stay stable: business rules, public contracts, data transformations, bug regressions, and a thin set of end-to-end flows. Write fewer for pass-through forwarding, private helpers already covered through a public caller, call-count and call-order choreography, wholesale snapshots, and any test whose assertions mirror the implementation instead of the promised behavior.
 
 ```ts
-// Custom constraint with .refine()
-const PositiveInt = z
-  .number()
-  .int()
-  .refine((n) => n > 0, "must be positive");
-type PositiveInt = z.infer<typeof PositiveInt>;
+// BAD: asserts internal choreography, not the promised behavior
+it("saves the order via the repository", async () => {
+  const repo = { save: vi.fn() };
+  await createOrder({ repo }, { sku: "A1", qty: 2 });
+  expect(repo.save).toHaveBeenCalledTimes(1);
+});
+
+// GOOD: asserts the business rule — what the caller was promised
+it("applies the bulk discount at qty 10", () => {
+  expect(totalFor([{ sku: "A1", qty: 10 }])).toBe(85);
+});
 ```
+
+A good test survives a behavior-preserving refactor; one that must change with it is pinned to the wrong thing.
 
 # Rule: Use `repoq` for Repository Queries
 
-Use `repoq` for reading repository state instead of piping `git` or the forge CLI through `awk`/`jq`/`grep`. Each command handles edge cases (detached HEAD, unborn branches, missing auth) and returns validated JSON. Use raw `git` for commit/push/merge, and the repo's forge CLI for forge-side mutations (PRs, issues, releases) — `gh` for GitHub or `fgj` for Forgejo, per the detected provider. Run `npx -y repoq@latest --help` if unsure of the available subcommands; the explicit tag prevents `npx` from reusing a stale cached release.
+Use `repoq` for reading repository state instead of piping `git` or the forge CLI through `awk`/`jq`/`grep`. Each command handles edge cases (detached HEAD, unborn branches, missing auth) and, under `--json`, returns validated JSON. It also carries one write verb: `pr create` opens a pull request on the detected forge, taking the body from a file or stdin rather than an argument the shell would expand. Use raw `git` for commit/push/merge, and the repo's forge CLI for the other forge-side mutations (issues, releases, PR edits) — `gh` for GitHub or `fgj` for Forgejo, per the detected provider. Run `npx -y repoq@latest --help` if unsure of the available subcommands; the explicit tag prevents `npx` from reusing a stale cached release.
 
-# Rule: Cargo Dependency Updates
+# Rule: Upgrade Dependencies with `cargo update`
 
-Run `cargo update` to upgrade dependencies to the latest versions allowed by existing SemVer ranges; this modifies `Cargo.lock` only. By default, Cargo treats plain version specifiers (`"1.0"`, `"0.12"`) as caret (`^`) ranges that allow updates up to, but not including, the next SemVer-breaking release.
+Run `cargo update` to upgrade dependencies to the latest versions allowed by existing SemVer ranges; this modifies `Cargo.lock` only. Edit `Cargo.toml` only to change the range itself, such as bumping `serde = "1.0"` to `serde = "2.0"`.
 
-Edit `Cargo.toml` only to widen the range itself, such as bumping `serde = "1.0"` to `serde = "2.0"` to adopt a new major version.
-
-For `0.x` versions, Cargo treats minor bumps as breaking: `"0.12"` allows updates within `0.12.x` but not to `0.13.0`. Moving from `"0.12"` to `"0.13"` therefore requires a `Cargo.toml` edit, not `cargo update`.
+For `0.x` versions, Cargo treats minor bumps as breaking — `"0.12"` reaches `0.12.x`, never `0.13.0`.
