@@ -48,15 +48,29 @@ Use `-slim` Debian variants (e.g. `node:26-bookworm-slim`, `python:3.12-slim-boo
 
 # Rule: Set the Container UID in the Orchestrator, Not the Image
 
-Do not create users inside container images. Let the orchestrator (Podman Quadlet, Kubernetes, docker-compose) specify the non-root UID and GID the container runs as. A hardcoded `USER` couples the image to one UID: clusters enforcing Pod Security Standards or OPA Gatekeeper can require arbitrary UIDs, and an orchestrator-assigned UID that differs from the image's causes volume-ownership conflicts Podman papers over with the non-portable `:U` volume flag.
+Do not create users inside container images. Let the orchestrator (Podman Quadlet, Kubernetes, docker-compose) specify the non-root UID and GID the container runs as. A `USER` naming an image-local account couples the image to one UID: clusters enforcing Pod Security Standards or OPA Gatekeeper can require arbitrary UIDs, and an orchestrator-assigned UID that differs from the image's causes volume-ownership conflicts Podman papers over with the non-portable `:U` volume flag.
 
 ```dockerfile
-# BAD
+# BAD: the account exists only in this image, and USER pins the container to it
 RUN groupadd -r myapp && useradd -r -g myapp myapp
 USER myapp
 ```
 
-Write the runtime stage without a `USER` instruction.
+Minting a new account is the prohibited act, not naming one. Where everything that starts the image assigns the UID, the runtime stage needs no `USER` instruction, because the orchestrator replaces the image's user at container start. That override reaches only the running container: a `USER` also applies to every later `RUN` step in its stage. So where build steps must run unprivileged, keep a `USER` naming an account the base image already ships before them; those steps run under that account, and the orchestrator still overrides it at container start.
+
+## Never let the fallback be root
+
+An image deployed by a bare `podman run` or `docker run` has no orchestrator to assign anything, so dropping `USER` starts it as root. There, keep a `USER` naming an unprivileged account the base image already ships — `node`, `nginx`, `postgres` — and, at build time, give it every path inside the image that the process writes at runtime:
+
+```dockerfile
+# GOOD: no account is created; node ships with the base image
+RUN mkdir -p /result && chown node:node /result
+USER node
+```
+
+That ownership serves only launches that run as this account. Under a launcher that assigns another UID, every path the process writes must be writable by that UID: give a path kept in the image a mode or group that UID can write, and give a bind-mounted path that UID as its host owner, as the last section describes. A bind mount hides the image's copy of the directory it covers, so build-time ownership never reaches it.
+
+Drop the `USER` line only once everything that starts the image — a Quadlet unit, a pod spec, a sandbox or job launcher calling the container API — sets the UID itself. Until then it is the only thing standing between the workload and root.
 
 ## Orchestrator configuration
 
@@ -111,7 +125,7 @@ Default to writing no comments. Add one only to capture what the code cannot sho
 
 Never explain what the code does. Names convey purpose, types convey shape, the code itself conveys behavior. Never reference the current task, fix, or callers ("used by X", "added for the Y flow", "handles the case from issue #123") — those belong in the PR description and rot as the codebase evolves.
 
-Keep the comments you write — docstrings included — to one short line; an example snippet already living in a docstring is documentation to keep type-checking, not a comment to trim.
+Keep the comments you write — docstrings included — as short as the reason they record allows, usually one line; an example snippet already living in a docstring is documentation to keep type-checking, not a comment to trim.
 
 ```ts
 // BAD: references caller context that will rot
@@ -142,7 +156,7 @@ Skip the sketch when the shape is dictated rather than chosen — a schema mirro
 
 # Rule: File Naming Matches Contents
 
-Name files for what the module does: kebab-case, verb-noun or domain-role names, matching the primary export — `calculateUsageRate` goes in `calculate-usage-rate.ts`.
+Name files for what the module does: verb-noun or domain-role names, matching the primary export — `calculateUsageRate` goes in `calculate-usage-rate.ts`. Use kebab-case in TypeScript and JavaScript; in other languages, match the repository's existing files of the same kind. Wherever a toolchain reads meaning into a name, its convention wins: Go's `_test.go` and `_linux.go` suffixes, pytest's default `test_*.py` pattern, and Rust and Python modules imported by name, which must be identifiers.
 
 ## Checklist
 
@@ -188,11 +202,11 @@ function generateExpiryEmails(users: User[]): Array<[string, string]> {
 email.bulkSend(generateExpiryEmails(getExpiredUsers(db.getUsers(), new Date())));
 ```
 
-Test the functional core, not the shell. Core tests are fast, deterministic, and need no mocks; the shell becomes thin orchestration where bugs are easy to spot through review. If shell tests are requested, prefer integration tests over unit tests with mocks.
+The split pays off in tests: core tests are fast, deterministic, and need no mocks, and the shell becomes thin orchestration where bugs are easy to spot through review. Which tests to write, for the core and the shell alike, is governed by the Test What Matters rule.
 
 # Rule: No Logic in Tests
 
-Write test assertions as concrete input/output examples, not computed values — unlike production code that handles varied inputs, tests verify specific cases. Avoid operators, string concatenation, loops, and conditionals in test bodies — these obscure bugs.
+Write test assertions as concrete input/output examples, not computed values — unlike production code that handles varied inputs, tests verify specific cases. Avoid operators, string concatenation, loops, and conditionals in test bodies — these obscure bugs. Two shapes are not this logic: a table of literal cases the framework reports one by one — `it.each`, pytest's `parametrize`, a loop over Go's `t.Run` or Python's `self.subTest` — and a comparison that is itself the assertion, such as pytest's `assert slug == "a-b"` or a Go `if` whose body only fails the test (`if got != want { t.Errorf(…) }`, `if err != nil { t.Fatal(err) }`).
 
 ```ts
 const baseUrl = "http://example.com/";
@@ -210,7 +224,7 @@ Use test utilities for setup and data preparation — fixtures, builders, factor
 
 When checking input data, return a refined type that preserves the knowledge gained — don't just validate and discard. Validation functions that return `void` or a bare `boolean` force callers to re-check conditions or handle "impossible" cases the compiler could rule out — and a check whose result nothing consumes is easy to forget entirely.
 
-Zod embodies this principle: every schema is a parser from `unknown` input to a typed output. Use it at system boundaries to convert external input — JSON, environment variables, API responses — into domain types early.
+Parse external input — JSON, environment variables, API responses — into domain types at the system boundary. In TypeScript, use Zod: every schema is a parser from `unknown` input to a typed output.
 
 ```ts
 import * as z from "zod";
@@ -235,7 +249,7 @@ function handleRequest(body: unknown): User {
 
 # Rule: Test What Matters
 
-Write tests where failure is expensive and the test can stay stable: business rules, public contracts, data transformations, bug regressions, and a thin set of end-to-end flows. Write fewer for pass-through forwarding, private helpers already covered through a public caller, call-count and call-order choreography, wholesale snapshots, and any test whose assertions mirror the implementation instead of the promised behavior.
+Write tests where failure is expensive and the test can stay stable: business rules, data transformations, the functional core's public contracts, and a regression test for every bug you fix, shell code included, unless the compiler would reject the bug if it came back. Beyond those regression tests, leave the imperative shell — CLI entry points, HTTP handlers, database and file I/O — untested unless tests are requested; when they are, prefer a thin set of end-to-end flows over unit tests with mocks. Write fewer for pass-through forwarding, private helpers already covered through a public caller, call-count and call-order choreography, wholesale snapshots, and any test whose assertions mirror the implementation instead of the promised behavior.
 
 ```ts
 // BAD: asserts internal choreography, not the promised behavior
@@ -252,6 +266,14 @@ it("applies the bulk discount at qty 10", () => {
 ```
 
 A good test survives a behavior-preserving refactor; one that must change with it is pinned to the wrong thing.
+
+# Rule: No Changelogs in Your Own Code
+
+Create no changelog or release-notes files (`CHANGELOG.md`, `RELEASE_NOTES.md`, `.changeset/`, `changelog.d/`) and write no changelog entries: the commit message and pull request description carry the history of a change.
+
+When you find an existing one in the repository's own code, move any standing facts it still carries into the package's current documentation in present tense, then delete it. Standing facts are things like upgrade order or rollback limits for versions still in use.
+
+Forks of upstream projects and vendored third-party code keep upstream's convention.
 
 # Rule: Use `repoq` for Repository Queries
 
