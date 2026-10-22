@@ -1,66 +1,120 @@
 ---
 name: commit-msg
 
-# Validate on pull_request only; a post-merge --last check would choke on the
-# immutable, auto-composed squash body whose lines exceed the body-length limit.
+# Validate the current PR title and the subjects selected for a rebase.
 
 on:
   pull_request:
+    # `edited` is required: a base-branch retarget fires only `edited`. It also
+    # fires on title and body edits, so a title change rechecks the squash subject.
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read
+  # Reading the current pull request needs more than contents: read.
+  pull-requests: read
 
 jobs:
   commitlint:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    env:
-      COMMITLINT_PACKAGE_VERSION: "1.0.3"
-      # npm's fetch-timeout defaults to 300s — exactly this job's cap — so one
-      # stalled request eats the whole budget in silence and the job is killed
-      # before npm's own retry ever fires. Observed as five consecutive 5m00s
-      # timeouts across align and cluster while the same install took 6s when
-      # it worked. Bounding the request keeps the retries useful and turns the
-      # tail from minutes into seconds; the cap below then means what it says.
-      npm_config_fetch_timeout: "30000"
-      npm_config_fetch_retries: "3"
-      npm_config_fetch_retry_mintimeout: "1000"
-      npm_config_fetch_retry_maxtimeout: "10000"
     steps:
       - uses: actions/checkout@v6
         with:
+          # Fetches every branch, so validation finds the base without a fetch.
           fetch-depth: 0
+          # The validation step executes the PR's helper; do not persist its token.
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          # Deliberately policy-pinned: this workflow runs only a version-pinned npm package and takes no toolchain input from the PR tree — the template, not node-version-file, supplies the fleet baseline.
+          # Policy-pinned runtime for the refreshed PR metadata parser.
           node-version: "26.5.0"
 
-      - name: Cache conventional-commit-msg download
-        uses: actions/cache@v5
-        with:
-          path: ~/.npm
-          key: npm-conventional-commit-msg-${{ env.COMMITLINT_PACKAGE_VERSION }}
-
-      - name: Validate commit messages with commitlint
-        # A squash merge (the default) lands the PR title as main's subject; a
-        # rebase merge lands the PR's commits. Validate both so semantic-release
-        # never sees an unparseable subject on main.
+      - name: Read the current pull request
+        # Reruns can replay stale metadata, so read the current pull request;
+        # validation still uses this run's event head.
+        # Only this step needs the job token.
         shell: bash
         env:
-          # Pass the attacker-controllable PR title via env, never inline in run: (script injection).
-          PR_TITLE: ${{ github.event.pull_request.title }}
+          # Pass attacker-controllable event fields via env, never inline in run: (script injection).
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+          API_URL: ${{ github.api_url }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
-          # Squash: the PR title becomes main's subject.
-          printf '%s\n' "$PR_TITLE" \
-            | npm exec --yes --package=conventional-commit-msg@${COMMITLINT_PACKAGE_VERSION} -- \
-              conventional-commit-msg
+          case "$PR_NUMBER" in
+            ""|*[!0-9]*)
+              printf 'refusing pull request number %s\n' "$PR_NUMBER" >&2
+              exit 1
+              ;;
+          esac
 
-          # Rebase: the PR's individual commits land on main.
-          npm exec --yes --package=conventional-commit-msg@${COMMITLINT_PACKAGE_VERSION} -- \
-            conventional-commit-msg \
-            --from "${{ github.event.pull_request.base.sha }}" \
-            --to "${{ github.event.pull_request.head.sha }}"
+          api_root=${API_URL%/}
+          pr_json=$(
+            curl -fsS \
+              -H "Accept: application/json" \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              "${api_root}/repos/${REPOSITORY}/pulls/${PR_NUMBER}"
+          )
+          pr_fields="${RUNNER_TEMP}/commit-msg-pr"
+          mkdir -p "$pr_fields"
+          printf '%s' "$pr_json" | FIELD_REF="$pr_fields/ref" FIELD_TITLE="$pr_fields/title" node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{const fs=require("node:fs");const pr=JSON.parse(s);const ref=pr?.base?.ref;const title=pr?.title;if(typeof ref!=="string"||ref.length===0){process.stderr.write("pull request response has no base ref\n");process.exit(1)}if(typeof title!=="string"){process.stderr.write("pull request response has no title\n");process.exit(1)}fs.writeFileSync(process.env.FIELD_REF,ref);fs.writeFileSync(process.env.FIELD_TITLE,title)})'
+
+      - name: Validate commit title and subjects
+        # Validate the messages a merge places on the target branch; the
+        # repository's merge settings decide which merge methods apply.
+        shell: bash
+        env:
+          # Pass attacker-controllable event fields via env, never inline in run: (script injection).
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          # Forgejo's runner exports credentials to every step: the job token,
+          # the Actions runtime and OIDC request tokens, and a cache URL whose
+          # run key authenticates to the cache proxy. The PR's checker still
+          # executes here; keep these credentials out of its environment.
+          unset GITHUB_TOKEN FORGEJO_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_CACHE_URL
+
+          case "$HEAD_SHA" in
+            *[!0-9a-fA-F]*)
+              printf 'refusing head sha %s\n' "$HEAD_SHA" >&2
+              exit 1
+              ;;
+          esac
+          if [ "${#HEAD_SHA}" -ne 40 ] && [ "${#HEAD_SHA}" -ne 64 ]; then
+            printf 'refusing head sha %s\n' "$HEAD_SHA" >&2
+            exit 1
+          fi
+
+          pr_fields="${RUNNER_TEMP}/commit-msg-pr"
+          base_ref=$(cat "$pr_fields/ref")
+
+          # Squash: the PR title becomes the target branch's subject.
+          if { cat "$pr_fields/title"; printf '\n'; } | bash scripts/check-msg.sh --title; then
+            :
+          else
+            check_status=$?
+            printf '%s\n' 'commit-msg: PR title check failed' >&2
+            exit "$check_status"
+          fi
+
+          # Forgejo allows branch names that start with "-", which --branch rejects.
+          git check-ref-format "refs/heads/${base_ref}"
+          from=$(git rev-parse "refs/remotes/origin/${base_ref}^{commit}")
+
+          # Rebase: the PR's individual commits land on the target branch.
+          git rev-list "$from..$HEAD_SHA" > "$pr_fields/commits"
+          failed=0
+          while IFS= read -r commit; do
+            git show -s --format=%B "$commit" > "$pr_fields/message"
+            if ! bash scripts/check-msg.sh < "$pr_fields/message"; then
+              printf 'commit-msg: commit check failed: %s\n' "$commit" >&2
+              failed=1
+            fi
+          done < "$pr_fields/commits"
+          exit "$failed"
