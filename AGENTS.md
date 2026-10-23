@@ -160,6 +160,8 @@ A module earns its place by what it hides behind an interface smaller than the i
 - A wrapper that only forwards calls adds surface without hiding anything; use the wrapped thing directly. An interface that hides infrastructure behind domain-shaped methods is the opposite case — that is depth.
 - In production code, one general operation serving all current callers beats several near-duplicate special-case ones.
 
+When a change adds or reshapes an interface — a new type, module, service, option, or error path — or splits, merges, wraps, or layers code, load the `module-design-tradeoffs` skill before settling the design.
+
 # Rule: Design Contracts Twice
 
 The shape that ships first is usually just the first one that worked, and some shapes are expensive to revisit once anything depends on them: a CLI surface, a stored or wire format, JSON output that automation parses, a package's public API. Before committing to such a contract, sketch a second, meaningfully different shape and compare the two on what each asks of callers: what they must know to use it correctly, and what they can get wrong silently. Prefer the shape that keeps required knowledge small while misuse stays loud — still failing a compile, a parse, or a run. Record the winner and the loser in a sentence or two where rejected alternatives already belong — the pull request description, or a one-line comment when the code alone would not explain the choice.
@@ -289,7 +291,9 @@ Forks of upstream projects and vendored third-party code keep upstream's convent
 
 # Rule: Use `repoq` for Repository Queries
 
-Use `repoq` for reading repository state instead of piping `git` or the forge CLI through `awk`/`jq`/`grep`. Each command handles edge cases (detached HEAD, unborn branches, missing auth) and, under `--json`, returns validated JSON. It also carries one write verb: `pr create` opens a pull request on the detected forge, taking the body from a file or stdin rather than an argument the shell would expand. Use raw `git` for commit/push/merge, and the repo's forge CLI for the other forge-side mutations (issues, releases, PR edits) — `gh` for GitHub or `fgj` for Forgejo, per the detected provider. Run `npx -y repoq@latest --help` if unsure of the available subcommands; the explicit tag prevents `npx` from reusing a stale cached release.
+Use `repoq` for reading repository state instead of piping `git` or the forge CLI through `awk`/`jq`/`grep`. Each command handles edge cases (detached HEAD, unborn branches, missing auth) and, under `--json`, returns validated JSON. It also carries one write verb: `pr create` opens a pull request on the detected forge, taking the body from a file or stdin rather than an argument the shell would expand. Use raw `git` for commit/push/merge, and the repo's forge CLI for the other forge-side mutations (issues, releases, PR edits) — `gh` for GitHub or `fgj` for Forgejo, per the detected provider.
+
+Run it as `npx -y --@j4k-oss:registry=https://code.j4k.dev/api/packages/j4k-oss/npm/ @j4k-oss/repoq@latest <command>`, and add `--help` if unsure of the available subcommands. It publishes only to the Forge registry as `@j4k-oss/repoq`; the unscoped `repoq` on npmjs is deprecated and frozen at an old release. Keep the `--@j4k-oss:registry` flag: without it, `npx` looks on npmjs, finds nothing, and fails with a 404. The `@latest` tag prevents `npx` from reusing a stale cached release.
 
 # Rule: Upgrade Dependencies with `cargo update`
 
