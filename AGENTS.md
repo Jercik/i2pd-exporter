@@ -46,11 +46,13 @@ The `_` occupies `$0` (the script name), leaving `$@` for the command and argume
 
 Use `-slim` Debian variants (e.g. `node:26-bookworm-slim`, `python:3.12-slim-bookworm`) as container base images — Alpine's musl libc breaks glibc prebuilt binaries and forces native-module rebuilds, and the base-image size savings become marginal once app dependencies land.
 
-# Rule: Pass `--platform linux/amd64` for amd64 `code.j4k.dev/j4k/*` Images on an arm64 Host
+# Rule: Pass `--platform linux/amd64` for amd64-only `code.j4k.dev/j4k/*` Images on an arm64 Host
 
-Published `code.j4k.dev/j4k/*` images are `linux/amd64` unless the package lists `linux/arm64` in `j4k.alignOciPlatforms`; every deployment host is x86_64. On an arm64 machine, pull and run an amd64 image with `--platform linux/amd64` (`docker run --platform linux/amd64 …`, or `platform: linux/amd64` on the compose service) so it runs under emulation instead of failing with a missing-manifest error. An image that lists `linux/arm64` needs no flag; one that lists only `linux/arm64` must not get `--platform linux/amd64`.
+A `code.j4k.dev/j4k/*` image carries only the platforms its release built. On an arm64 machine, run `docker manifest inspect -v` on the full reference you use (`code.j4k.dev/j4k/<image>:<tag>`, with any `@<digest>` it pins) before pulling or running it, read the platforms from each `Descriptor.platform`, and resolve an inspect error before choosing a platform. When `linux/arm64` is absent, pass `--platform linux/amd64` (`docker run --platform linux/amd64 …`, or `platform: linux/amd64` on the compose service) so the image runs under emulation instead of failing with a missing-manifest error. When `linux/arm64` is present, omit the flag.
 
-Build Containerfiles natively on local machines; an arm64 build is allowed. Retain their `arm64` branches: native arm64 builds exercise them even when the package does not publish arm64. CI builds arm64 only for packages that opt in through `j4k.alignOciPlatforms`.
+To also publish `linux/arm64`, set the package's `j4k.alignOciPlatforms` to `["linux/amd64", "linux/arm64"]` and run `j4k-align --fix`. Keep `linux/amd64` in the list: deployment hosts are x86_64. Without `linux/arm64` there, a regenerated publish workflow builds `linux/amd64` alone.
+
+Build Containerfiles natively on local machines; an arm64 build is allowed. When a stage builds `FROM` any image whose manifest lacks `linux/arm64`, build with `--platform linux/amd64` instead. Retain the Containerfile's `arm64` branches: native arm64 builds exercise them even when the package does not publish arm64.
 
 # Rule: Set the Container UID in the Orchestrator, Not the Image
 
