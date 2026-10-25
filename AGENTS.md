@@ -1,6 +1,6 @@
 # Rule: Read the Startup Files First
 
-Before taking any action, read @README.md.
+Read @README.md before taking any action.
 
 # Rule: Execute Commands from Arrays, Not Strings
 
@@ -46,9 +46,19 @@ The `_` occupies `$0` (the script name), leaving `$@` for the command and argume
 
 Use `-slim` Debian variants (e.g. `node:26-bookworm-slim`, `python:3.12-slim-bookworm`) as container base images — Alpine's musl libc breaks glibc prebuilt binaries and forces native-module rebuilds, and the base-image size savings become marginal once app dependencies land.
 
+# Rule: Pass `--platform linux/amd64` for amd64 `code.j4k.dev/j4k/*` Images on an arm64 Host
+
+Published `code.j4k.dev/j4k/*` images are `linux/amd64` unless the package lists `linux/arm64` in `j4k.alignOciPlatforms`; every deployment host is x86_64. On an arm64 machine, pull and run an amd64 image with `--platform linux/amd64` (`docker run --platform linux/amd64 …`, or `platform: linux/amd64` on the compose service) so it runs under emulation instead of failing with a missing-manifest error. An image that lists `linux/arm64` needs no flag; one that lists only `linux/arm64` must not get `--platform linux/amd64`.
+
+Build Containerfiles natively on local machines; an arm64 build is allowed. Retain their `arm64` branches: native arm64 builds exercise them even when the package does not publish arm64. CI builds arm64 only for packages that opt in through `j4k.alignOciPlatforms`.
+
 # Rule: Set the Container UID in the Orchestrator, Not the Image
 
-Do not create users inside container images. Let the orchestrator (Quadlet `User=`/`Group=`, compose `user:`, Kubernetes `runAsUser`/`runAsGroup`) set the non-root UID and GID the container runs as, and create the host account with that same explicit UID and GID. A bare `docker run` or `podman run` has no orchestrator, so keep a `USER` naming the numeric UID of an unprivileged account the base image already ships; omit it only when every launcher of the image always sets a non-zero UID (`UserNS=` alone does not). A sandbox guest base such as the axjob guest, and every image built `FROM` it, keeps `USER root` as the key holder while its agent process runs as the base image's existing UID 1000 account; no other image falls back to root. Send runtime writes to orchestrator-provided volumes or tmpfs.
+Do not create user accounts inside container images. Let the orchestrator (Quadlet `User=`/`Group=`, compose `user:`, Kubernetes `runAsUser`/`runAsGroup`) set the numeric non-root UID and GID the container runs as, and create the host account with that same explicit UID and GID. Send runtime writes to orchestrator-provided volumes or tmpfs.
+
+A bare `docker run` or `podman run` has no orchestrator, so the image's `USER` decides who the container runs as, and an image without one runs as root. Keep a `USER` naming the numeric UID of an unprivileged account the base image already ships. Omit it only when every launcher of the image names a non-zero UID itself, as `--user`, `User=`, and `runAsUser` do; a `UserNS=` setting alone does not count.
+
+Only a sandbox guest base, as the `container-images` skill defines it, and every image built `FROM` one keep `USER root`. In such a base, a root process holds credentials the sandboxed agent must not read, and the agent runs as an unprivileged account the base image already ships, so the image still creates no account.
 
 When writing an image's `USER` or writable paths, a launcher's user, group, or volumes, or a container's host account, or when debugging a container permission error, load the `container-images` skill.
 
