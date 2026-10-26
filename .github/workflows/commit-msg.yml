@@ -1,7 +1,7 @@
 ---
 name: commit-msg
 
-# Validate the current PR title and the subjects selected for a rebase.
+# Enforce commit-message policy before merge; see the validation step below.
 
 on:
   pull_request:
@@ -25,12 +25,6 @@ jobs:
           fetch-depth: 0
           # The validation step executes the PR's helper; do not persist its token.
           persist-credentials: false
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          # Policy-pinned runtime for the refreshed PR metadata parser.
-          node-version: "26.12.1"
 
       - name: Read the current pull request
         # Reruns can replay stale metadata, so read the current pull request;
