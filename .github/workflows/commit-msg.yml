@@ -30,7 +30,7 @@ jobs:
         uses: actions/setup-node@v6
         with:
           # Policy-pinned runtime for the refreshed PR metadata parser.
-          node-version: "26.5.0"
+          node-version: "26.12.1"
 
       - name: Read the current pull request
         # Reruns can replay stale metadata, so read the current pull request;
