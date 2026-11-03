@@ -89,13 +89,18 @@ jobs:
           base_ref=$(cat "$pr_fields/ref")
 
           # Squash: the PR title becomes the target branch's subject.
-          if { cat "$pr_fields/title"; printf '\n'; } | bash scripts/check-msg.sh --title; then
-            :
-          else
-            check_status=$?
-            printf '%s\n' 'commit-msg: PR title check failed' >&2
-            exit "$check_status"
-          fi
+          check_title() {
+            local check_status
+            if { cat "$pr_fields/title"; printf '%s\n' "$1"; } | bash scripts/check-msg.sh --title; then
+              return 0
+            else
+              check_status=$?
+              printf 'commit-msg: %s\n' "$2" >&2
+              exit "$check_status"
+            fi
+          }
+
+          check_title "" 'PR title check failed'
 
           # Forgejo allows branch names that start with "-", which --branch rejects.
           git check-ref-format "refs/heads/${base_ref}"
