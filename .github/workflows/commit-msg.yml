@@ -56,7 +56,22 @@ jobs:
           )
           pr_fields="${RUNNER_TEMP}/commit-msg-pr"
           mkdir -p "$pr_fields"
-          printf '%s' "$pr_json" | FIELD_REF="$pr_fields/ref" FIELD_TITLE="$pr_fields/title" node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{const fs=require("node:fs");const pr=JSON.parse(s);const ref=pr?.base?.ref;const title=pr?.title;if(typeof ref!=="string"||ref.length===0){process.stderr.write("pull request response has no base ref\n");process.exit(1)}if(typeof title!=="string"){process.stderr.write("pull request response has no title\n");process.exit(1)}fs.writeFileSync(process.env.FIELD_REF,ref);fs.writeFileSync(process.env.FIELD_TITLE,title)})'
+          printf '%s' "$pr_json" | FIELD_REF="$pr_fields/ref" FIELD_TITLE="$pr_fields/title" node -e '
+            const fs = require("node:fs");
+            const pr = JSON.parse(fs.readFileSync(0, "utf8"));
+            const ref = pr?.base?.ref;
+            const title = pr?.title;
+            if (typeof ref !== "string" || ref.length === 0) {
+              process.stderr.write("pull request response has no base ref\n");
+              process.exit(1);
+            }
+            if (typeof title !== "string") {
+              process.stderr.write("pull request response has no title\n");
+              process.exit(1);
+            }
+            fs.writeFileSync(process.env.FIELD_REF, ref);
+            fs.writeFileSync(process.env.FIELD_TITLE, title);
+          '
 
       - name: Validate commit title and subjects
         # Validate the messages a merge places on the target branch; the
