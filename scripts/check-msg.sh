@@ -18,9 +18,10 @@ if [[ "$mode" == commit ]]; then
   esac
 fi
 
-pattern='^(feat|fix|docs|refactor|test|chore|perf|build|ci|style|revert)(\([^)]+\))?!?: .+'
+types='feat|fix|docs|refactor|test|chore|perf|build|ci|style|revert'
+pattern="^($types)(\\([^)]+\\))?!?: .+"
 if [[ ! "$header" =~ $pattern ]]; then
-  printf 'commit-msg: invalid header (expected a Conventional Commits header): %s\n' "$header" >&2
+  printf "commit-msg: invalid header (expected 'type: subject' with type one of %s; the type may be followed by '(scope)', then by '!' for a breaking change): %s\n" "${types//|/, }" "$header" >&2
   exit 1
 fi
 if [[ "${#header}" -gt 100 ]]; then
