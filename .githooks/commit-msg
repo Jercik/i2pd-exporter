@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
+# Rendered by j4k-align from https://code.j4k.dev/j4k/align/src/branch/main/templates/repo/githook-commit-msg-default.sh.hbs
+# Direct edits are drift and are overwritten on the next targeted `--fix`; edit the template.
 # Native Git hook - enable with: git config core.hooksPath .githooks
 set -euo pipefail
 
-exec bash scripts/check-msg.sh < "$1"
+exec bash scripts/check-msg.sh --draft < "$1"

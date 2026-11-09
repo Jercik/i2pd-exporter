@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Rendered by j4k-align from https://code.j4k.dev/j4k/align/src/branch/main/templates/repo/githook-pre-commit-rust.sh.hbs
+# Direct edits are drift and are overwritten on the next targeted `--fix`; edit the template.
 # Native Git hook - enable with: git config core.hooksPath .githooks
 set -euo pipefail
 
