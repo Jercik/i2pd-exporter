@@ -1,4 +1,6 @@
 ---
+# Rendered by j4k-align from https://code.j4k.dev/j4k/align/src/branch/main/templates/workflows/commit-msg.yml.hbs
+# Direct edits are drift and are overwritten on the next targeted `--fix`; edit the template.
 name: commit-msg
 
 # Enforce commit-message policy before merge; see the validation step below.

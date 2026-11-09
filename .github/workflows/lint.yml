@@ -1,4 +1,6 @@
 ---
+# Rendered by j4k-align from https://code.j4k.dev/j4k/align/src/branch/main/templates/workflows/lint-rust.yml.hbs
+# Direct edits are drift and are overwritten on the next targeted `--fix`; edit the template.
 name: Lint
 
 on:
@@ -22,8 +24,33 @@ jobs:
         with:
           components: clippy, rustfmt
 
+      - name: Restore cargo registry
+        id: cargo-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: cargo-registry-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Fetch dependencies
+        # Fetches every package in the lockfile, not just the ones this job builds, so each job sharing the key saves the same registry. No --locked, so formatting and lint still run in a crate with no committed Cargo.lock.
+        run: cargo fetch
+
       - name: rustfmt check
         run: cargo fmt --all --check
 
       - name: clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Save cargo registry
+        # Last step, so it saves only after the whole job succeeded, and an exact hit skips it. Pull requests only restore, so a miss never adds an upload to a pull request's critical path.
+        if: github.event_name != 'pull_request' && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
