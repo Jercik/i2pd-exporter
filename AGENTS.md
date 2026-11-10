@@ -96,31 +96,48 @@ Implement what the current requirement needs, nothing more. Speculative surface 
 - No abstraction justified only by a hypothetical second use: an interface with one implementation that hides nothing, a registry with one entry, indirection added "for flexibility". Extracting a single-use pure function into the functional core is not this — the extraction pays now, in testability, and the functional-core and file-naming rules ask for it.
 - No generality justified only by a future requirement — when the requirement arrives, designing for the real case beats having guessed. The one inversion is a format that locks at its first real reader (a wire format, a stored blob, a published API shape): a locked, versionless format is the one guess that cannot be cheaply corrected, so design its evolution path — a `version` field — up front.
 
-# Rule: Comments Explain Why, Not What
+# Rule: Comments and Documentation Record Why and What Must Stay True
 
-Default to writing no comments. Add one only to capture what the code cannot show — a hidden constraint, a subtle invariant, why a decision was made, which alternatives were rejected, what external factor forced a workaround — the context that stops the next person from "cleaning up" something load-bearing.
+Default to writing no comments. Add one only for what the code cannot show: why a decision was made, which alternatives were rejected, what external factor forced a workaround, or a commitment the code does not make obvious — the context that stops the next person from "cleaning up" something load-bearing. Never describe what the code does today; the code shows that.
 
-Never explain what the code does. Names convey purpose, types convey shape, the code itself conveys behavior. Never reference the current task, fix, or callers ("used by X", "added for the Y flow", "handles the case from issue #123") — those belong in the PR description and rot as the codebase evolves.
+A commitment is behavior future changes must keep true unless someone deliberately changes the requirement. Its owner is the user or a maintainer the repository names for the code that implements it, such as in CODEOWNERS; reach a maintainer only through the user. It needs evidence that its owner decided it must stay true:
+
+- a requirement they stated elsewhere, such as in an issue or to you;
+- the decision an ADR records;
+- a promise made by the documentation of an interface published to consumers outside the repository, such as a package's README or docstrings, a service's API reference, or a command's usage text;
+- an external constraint.
+
+An ADR and a published interface's documentation are evidence for what they themselves state; any other passage, including documentation of an interface used only inside the repository, needs evidence from outside itself. A test, docstring, or comment that only pins or repeats current behavior is not evidence, and neither is a snapshot reworded as "must" with a plausible reason. Never promote a description to a commitment yourself. Without that evidence, delete the description, but ask its owner before deleting existing text that words it as a requirement, such as with "must" or "never".
+
+Documentation follows the same test. When your change makes a documentation passage false, delete the snapshots in it rather than correcting them. Before writing, keeping, or correcting project documentation, load the `project-docs` skill and apply its existence test, which also decides which pointers stay; for agent instruction files, apply `writing-for-agents`. If a skill you need is unavailable, say so and leave pointers unchanged.
+
+Apply this to what you write and to text your change touches; report other failing text instead of deleting it. Never reference the current task, fix, or callers ("used by X", "added for the Y flow", "handles the case from issue #123"): those references belong in the PR description and rot as the codebase evolves. When a caller's need is a commitment's reason, state the need instead.
 
 Keep the comments you write — docstrings included — as short as the reason they record allows, usually one line; an example snippet already living in a docstring is documentation to keep type-checking, not a comment to trim.
 
 ```ts
+// BAD: a snapshot the next refactor may change
+// Loads the config, then validates it with the schema in config-schema.ts
+const config = loadConfig();
+
 // BAD: references caller context that will rot
 // Used by the checkout flow after the Stripe webhook fires
 function markOrderPaid(orderId: string): void {
   /* ... */
 }
 
-// GOOD: records a non-obvious external constraint
-// Stripe caps statement descriptors at 22 chars
-const statementDescriptor = raw.slice(0, 22);
+// GOOD: a commitment and the external constraint behind it
+// Must stay synchronous: pending writes must land at process exit, and Node abandons all async work once "exit" fires.
+function flushPendingWrites(): void {
+  /* ... */
+}
 ```
 
 # Rule: Prefer Deep Modules
 
 A module earns its place by what it hides behind an interface smaller than the implementation it covers: a decision, a side effect, a detail callers no longer carry. Judge every extraction and every layer by that ratio of interface to implementation. The deletion test settles close calls: if removing the module would scatter the same knowledge across its callers, it is earning its keep; if the complexity would simply vanish, it is a pass-through.
 
-- Never split a function or file because it is long; split for what the split hides or separates — a decision the caller need not know, a side effect kept out of the functional core.
+- Don't split a function or file just because it is long; split only for what the split hides or separates — a decision the caller need not know, a side effect kept out of the functional core.
 - If understanding a caller requires repeatedly reading a callee's body, that boundary hides nothing: inline it or redesign the interface.
 - A wrapper that only forwards calls adds surface without hiding anything; use the wrapped thing directly. An interface that hides infrastructure behind domain-shaped methods is the opposite case — that is depth.
 - In production code, one general operation serving all current callers beats several near-duplicate special-case ones.
@@ -246,6 +263,24 @@ it("applies the bulk discount at qty 10", () => {
 
 A good test survives a behavior-preserving refactor; one that must change with it is pinned to the wrong thing.
 
+# Rule: Keep Routine Runs Off External Hosts
+
+Assume any external host can be down for an hour: Docker Hub, ghcr, npmjs.org, PyPI, crates.io, Go and Rust toolchain servers, Debian and Alpine mirrors, GitHub release assets, `curl | sh` installers. A routine run must not need one when its caches are warm: a pull request check, anything a push to a branch starts (including a release that publishes on every merge), a commit hook, a scheduled job, or anything else that runs many times a day. A build someone starts by hand, such as a pushed release tag or a dispatched run, may fetch from them where waiting out an hour-long outage is acceptable, unless it runs many times a day. A run whose job is to update third-party dependencies, refreshing the images and packages we depend on in our mirrors and caches, may also fetch from them, even when a schedule or a push starts it.
+
+In a routine run, get each external input from infrastructure we run; where none serves it, restore it from a cache keyed only on that input's pin, so it is fetched only when the pin changes or the cache is cold.
+
+- In a Containerfile, put each external fetch in a stage whose cache key changes only when its pin does: the base, the lockfile or URL-plus-sha256, and the fetch itself. Keep source copies, and any `ARG` whose value differs between builds such as `VERSION` (`latest` in the PR gate, `x.y.z` in a release), below it; buildah keys every later `RUN` in the stage on them.
+- Pin each downloaded binary by version and sha256. Never pipe a moving installer into `sh`.
+- Resolve packages from a committed lockfile and restore the package store from a cache keyed on that lockfile; save it often enough that it does not expire between runs.
+
+In repositories on code.j4k.dev, the infrastructure we run is the forge's action mirror, its OCI mirror, its generic package registry, the `@j4k` and `@j4k-oss` npm registries, and the pre-baked job images:
+
+- Write a third-party action as `uses: owner/repo@ref`; a full URL bypasses the action mirror. Add a missing one to `forgejo_action_mirrors` in the j4k/cluster repository. Write an action hosted on code.j4k.dev with its full `https://code.j4k.dev/...` URL: the bare form resolves only through the mirror, which serves third-party actions alone.
+- Serve pinned binaries from the generic registry (j4k/cluster `scripts/mirror-files-to-forge.ts`) or a job image.
+- Pin each `FROM` by digest. `j4k-align --fix` writes Node bases; add any other base's digest to `forgejo_oci_mirror_docker_hub_images` in the j4k/cluster repository before pinning it. Change a pinned digest only in a dependency-update run someone starts by hand.
+
+Prove a routine run needs nothing external by running it once on a warm cache with the host or network blocked, for example `buildah build --layers --network none` or `UV_OFFLINE=1`. A log that names no host is not proof.
+
 # Rule: No Changelogs in Your Own Code
 
 Create no changelog or release-notes files (`CHANGELOG.md`, `RELEASE_NOTES.md`, `.changeset/`, `changelog.d/`) and write no changelog entries: the commit message and pull request description carry the history of a change.
@@ -258,7 +293,7 @@ Forks of upstream projects and vendored third-party code keep upstream's convent
 
 Use `repoq` for reading repository state instead of piping `git` or the forge CLI through `awk`/`jq`/`grep`. Each command handles edge cases (detached HEAD, unborn branches, missing auth) and, under `--json`, returns validated JSON. It also carries one write verb: `pr create` opens a pull request on the detected forge, taking the body from a file or stdin rather than an argument the shell would expand. Use raw `git` for commit/push/merge, and the repo's forge CLI for the other forge-side mutations (issues, releases, PR edits) — `gh` for GitHub or `fgj` for Forgejo, per the detected provider.
 
-Run it as `npx -y --@j4k-oss:registry=https://code.j4k.dev/api/packages/j4k-oss/npm/ @j4k-oss/repoq@latest <command>`, and add `--help` if unsure of the available subcommands. It publishes only to the Forge registry as `@j4k-oss/repoq`; the unscoped `repoq` on npmjs is deprecated and frozen at an old release. Keep the `--@j4k-oss:registry` flag: without it, `npx` looks on npmjs, finds nothing, and fails with a 404. The `@latest` tag prevents `npx` from reusing a stale cached release.
+Run it as `npx --yes --@j4k-oss:registry=https://code.j4k.dev/api/packages/j4k-oss/npm/ --package=@j4k-oss/repoq@latest -- repoq <command>`, and add `--help` if unsure of the available subcommands. It publishes only to the Forge registry as `@j4k-oss/repoq`; the unscoped `repoq` on npmjs is deprecated and frozen at an old release. Keep the `--@j4k-oss:registry` flag: without it, `npx` looks on npmjs, finds nothing, and fails with a 404. The `@latest` tag prevents `npx` from reusing a stale cached release.
 
 # Rule: Upgrade Dependencies with `cargo update`
 
