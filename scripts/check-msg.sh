@@ -23,7 +23,7 @@ if [[ "$mode" != title ]]; then
       if [[ "$mode" == draft ]]; then
         exit 0
       fi
-      printf 'commit-msg: autosquash commit must be squashed before it lands (git rebase --autosquash): %s\n' "$header" >&2
+      printf 'commit-msg: autosquash commit must be squashed before it lands (git rebase -i --autosquash <base>): %s\n' "$header" >&2
       exit 1
       ;;
   esac
