@@ -97,14 +97,7 @@ effective is clamped to >= 0.1s
 
 ## Development
 
-`pre-commit` runs the project checks locally:
-
-- `cargo fmt --all -- --check`
-- `cargo check --all-targets --all-features`
-- `cargo clippy --all-targets --all-features -- -D warnings`
-- `cargo test --all-targets --all-features`
-
-Install the git hook with `pre-commit install`. Run everything manually with `pre-commit run --all-files`.
+Install the git hook with `pre-commit install`. Run the checks manually with `pre-commit run --all-files`; they are defined in `.pre-commit-config.yaml`.
 
 ---
 
