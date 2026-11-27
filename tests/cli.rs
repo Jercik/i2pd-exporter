@@ -1,13 +1,14 @@
-use assert_cmd::prelude::*;
-use predicates::prelude::*;
 use std::process::Command;
 
-// Basic check that the binary is invocable and Clap wiring works
 #[test]
 fn prints_version() {
-    let mut cmd = Command::new(assert_cmd::cargo_bin!("i2pd-exporter"));
-    cmd.arg("--version");
-    cmd.assert()
-        .success()
-        .stdout(predicate::str::contains("i2pd-exporter"));
+    let output = Command::new(env!("CARGO_BIN_EXE_i2pd-exporter"))
+        .arg("--version")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(String::from_utf8(output.stdout)
+        .unwrap()
+        .contains("i2pd-exporter"));
 }
